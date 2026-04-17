@@ -60,6 +60,7 @@ async def get_messages(session_id: str, user_id: str = Depends(current_user_id))
             role=doc["role"],
             content=doc["content"],
             created_at=doc["created_at"],
+            sources=doc.get("sources") or [],
         )
         async for doc in cursor
     ]

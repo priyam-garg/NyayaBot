@@ -77,6 +77,7 @@ export default function Chat() {
           content: data.answer,
           created_at: new Date().toISOString(),
           refused: data.refused,
+          sources: data.sources || [],
         },
       ]);
       loadSessions();
@@ -129,6 +130,17 @@ export default function Chat() {
             <div key={m.id} className={`msg ${m.role}${m.refused ? " refused" : ""}`}>
               <div className="role">{m.role === "user" ? "You" : "NyayaBot"}</div>
               <div className="content">{m.content}</div>
+              {m.role === "assistant" && m.sources && m.sources.length > 0 && (
+                <div className="sources">
+                  <span className="sources-label">Sources:</span>
+                  {m.sources.map((s, i) => (
+                    <span key={`${s.source}-${i}`} className="source-chip" title={`score ${s.score.toFixed(3)}`}>
+                      {s.source}
+                      <span className="score">{s.score.toFixed(2)}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
           {sending && <div className="msg assistant"><div className="role">NyayaBot</div><div className="content muted">Thinking…</div></div>}

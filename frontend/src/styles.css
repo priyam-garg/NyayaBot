@@ -149,6 +149,35 @@ body {
 .msg.user .content { background: #1e2232; }
 .msg.refused .content { border-color: #f59e0b; }
 
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 0.8rem;
+}
+.sources-label {
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.7rem;
+}
+.source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #1b1f2a;
+  border: 1px solid #2a2f3d;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #cbd5e1;
+}
+.source-chip .score {
+  color: #818cf8;
+  font-variant-numeric: tabular-nums;
+}
+
 .composer {
   display: flex;
   gap: 8px;

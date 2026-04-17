@@ -38,18 +38,34 @@ def _format_context(hits) -> str:
     return "\n\n".join(blocks)
 
 
-def run_rag(query: str) -> tuple[str, bool, float | None]:
-    """Returns (answer, refused, top_score)."""
+def _dedupe_sources(hits) -> list[dict]:
+    """Collapse hits to one entry per source filename, keeping the best score."""
+    best: dict[str, dict] = {}
+    for h in hits:
+        payload = h.payload or {}
+        src = payload.get("source", "unknown")
+        score = float(h.score)
+        if src not in best or score > best[src]["score"]:
+            best[src] = {
+                "source": src,
+                "score": score,
+                "chunk_index": int(payload.get("chunk_index", 0)),
+            }
+    return sorted(best.values(), key=lambda x: x["score"], reverse=True)
+
+
+def run_rag(query: str) -> tuple[str, bool, float | None, list[dict]]:
+    """Returns (answer, refused, top_score, sources)."""
     s = get_settings()
     vector = embed_query(query)
     hits = search(vector, limit=s.top_k)
 
     if not hits:
-        return REFUSAL_MESSAGE, True, None
+        return REFUSAL_MESSAGE, True, None, []
 
     top_score = float(hits[0].score)
     if top_score < s.similarity_threshold:
-        return REFUSAL_MESSAGE, True, top_score
+        return REFUSAL_MESSAGE, True, top_score, []
 
     context = _format_context(hits)
     messages = [
@@ -57,4 +73,4 @@ def run_rag(query: str) -> tuple[str, bool, float | None]:
         HumanMessage(content=f"Context:\n{context}\n\nQuestion: {query}"),
     ]
     response = get_llm().invoke(messages)
-    return response.content, False, top_score
+    return response.content, False, top_score, _dedupe_sources(hits)

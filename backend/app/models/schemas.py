@@ -36,12 +36,19 @@ class SessionOut(BaseModel):
     updated_at: datetime
 
 
+class Source(BaseModel):
+    source: str
+    score: float
+    chunk_index: int
+
+
 class MessageOut(BaseModel):
     id: str
     session_id: str
     role: str
     content: str
     created_at: datetime
+    sources: list[Source] = []
 
 
 class ChatRequest(BaseModel):
@@ -53,6 +60,7 @@ class ChatResponse(BaseModel):
     answer: str
     refused: bool
     top_score: float | None = None
+    sources: list[Source] = []
 
 
 TokenResponse.model_rebuild()

@@ -31,12 +31,13 @@ async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> Ch
         "created_at": now,
     })
 
-    answer, refused, top_score = await asyncio.to_thread(run_rag, body.message)
+    answer, refused, top_score, sources = await asyncio.to_thread(run_rag, body.message)
 
     await messages_col().insert_one({
         "session_id": body.session_id,
         "role": "assistant",
         "content": answer,
+        "sources": sources,
         "created_at": datetime.now(timezone.utc),
     })
 
@@ -45,4 +46,4 @@ async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> Ch
         update["title"] = body.message.strip()[:60]
     await sessions_col().update_one({"_id": sid}, {"$set": update})
 
-    return ChatResponse(answer=answer, refused=refused, top_score=top_score)
+    return ChatResponse(answer=answer, refused=refused, top_score=top_score, sources=sources)
