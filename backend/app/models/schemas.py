@@ -1,0 +1,58 @@
+from datetime import datetime
+from pydantic import BaseModel, EmailStr, Field
+
+
+class SignupRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=128)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: "UserPublic"
+
+
+class UserPublic(BaseModel):
+    id: str
+    name: str
+    email: EmailStr
+
+
+class SessionCreate(BaseModel):
+    title: str | None = None
+
+
+class SessionOut(BaseModel):
+    id: str
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class MessageOut(BaseModel):
+    id: str
+    session_id: str
+    role: str
+    content: str
+    created_at: datetime
+
+
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str = Field(min_length=1, max_length=4000)
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    refused: bool
+    top_score: float | None = None
+
+
+TokenResponse.model_rebuild()
