@@ -1,6 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import api from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
+
+const SUGGESTED = [
+  "What is the time limit for a Public Information Officer to respond to an RTI application?",
+  "What information is exempt from disclosure under the RTI Act?",
+  "What is the fee for filing an RTI application?",
+  "Who can file an appeal under the RTI Act?",
+];
 
 export default function Chat() {
   const { user, logout } = useAuth();
@@ -10,6 +19,12 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  const activeSession = useMemo(
+    () => sessions.find((s) => s.id === activeId) || null,
+    [sessions, activeId]
+  );
 
   const loadSessions = async () => {
     const { data } = await api.get("/sessions");
@@ -27,7 +42,14 @@ export default function Chat() {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, sending]);
+
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
+  }, [input]);
 
   const selectSession = async (id) => {
     setActiveId(id);
@@ -42,9 +64,7 @@ export default function Chat() {
     setMessages([]);
   };
 
-  const send = async (e) => {
-    e.preventDefault();
-    const text = input.trim();
+  const sendText = async (text) => {
     if (!text || sending) return;
 
     let sessionId = activeId;
@@ -90,6 +110,7 @@ export default function Chat() {
           role: "assistant",
           content: e?.response?.data?.detail || "Request failed.",
           created_at: new Date().toISOString(),
+          error: true,
         },
       ]);
     } finally {
@@ -97,11 +118,31 @@ export default function Chat() {
     }
   };
 
+  const onSubmit = (e) => {
+    e.preventDefault();
+    sendText(input.trim());
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendText(input.trim());
+    }
+  };
+
+  const initials = (user?.email || "?").slice(0, 1).toUpperCase();
+
   return (
     <div className="chat-shell">
       <aside className="sidebar">
         <div className="sidebar-head">
-          <button className="new-btn" onClick={newSession}>+ New chat</button>
+          <div className="brand">
+            <span className="brand-mark">⚖</span>
+            <span className="brand-name">NyayaBot</span>
+          </div>
+          <button className="new-btn" onClick={newSession}>
+            <span>+</span> New chat
+          </button>
         </div>
         <ul className="sessions">
           {sessions.map((s) => (
@@ -109,51 +150,117 @@ export default function Chat() {
               key={s.id}
               className={s.id === activeId ? "active" : ""}
               onClick={() => selectSession(s.id)}
+              title={s.title}
             >
               {s.title}
             </li>
           ))}
-          {sessions.length === 0 && <li className="muted">No chats yet</li>}
+          {sessions.length === 0 && <li className="muted small">No chats yet</li>}
         </ul>
         <div className="sidebar-foot">
-          <div className="muted small">{user?.email}</div>
-          <button className="link" onClick={logout}>Sign out</button>
+          <div className="user-row">
+            <div className="avatar">{initials}</div>
+            <div className="user-meta">
+              <div className="user-email" title={user?.email}>{user?.email}</div>
+              <button className="link" onClick={logout}>Sign out</button>
+            </div>
+          </div>
         </div>
       </aside>
 
       <main className="chat-main">
+        <header className="chat-header">
+          <div className="chat-title">{activeSession?.title || "New conversation"}</div>
+          <div className="chat-sub muted small">Grounded in your ingested legal documents</div>
+        </header>
+
         <div className="messages" ref={scrollRef}>
           {messages.length === 0 && (
-            <div className="empty muted">Ask a question about the ingested legal documents.</div>
+            <div className="empty">
+              <div className="empty-mark">⚖</div>
+              <h2>Ask about the ingested legal documents</h2>
+              <p className="muted">Try one of these to get started:</p>
+              <div className="suggestions">
+                {SUGGESTED.map((q) => (
+                  <button key={q} className="suggestion" onClick={() => sendText(q)}>
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
+
           {messages.map((m) => (
-            <div key={m.id} className={`msg ${m.role}${m.refused ? " refused" : ""}`}>
-              <div className="role">{m.role === "user" ? "You" : "NyayaBot"}</div>
-              <div className="content">{m.content}</div>
-              {m.role === "assistant" && m.sources && m.sources.length > 0 && (
-                <div className="sources">
-                  <span className="sources-label">Sources:</span>
-                  {m.sources.map((s, i) => (
-                    <span key={`${s.source}-${i}`} className="source-chip" title={`score ${s.score.toFixed(3)}`}>
-                      {s.source}
-                      <span className="score">{s.score.toFixed(2)}</span>
-                    </span>
-                  ))}
+            <div
+              key={m.id}
+              className={`msg msg-${m.role}${m.refused ? " refused" : ""}${m.error ? " error-msg" : ""}`}
+            >
+              <div className="msg-avatar" aria-hidden>
+                {m.role === "user" ? initials : "⚖"}
+              </div>
+              <div className="msg-body">
+                <div className="msg-meta">
+                  <span className="msg-role">{m.role === "user" ? "You" : "NyayaBot"}</span>
+                  {m.refused && <span className="badge badge-warn">out of scope</span>}
+                  {m.error && <span className="badge badge-err">error</span>}
                 </div>
-              )}
+                <div className="msg-content">
+                  {m.role === "assistant" ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                  ) : (
+                    m.content
+                  )}
+                </div>
+                {m.role === "assistant" && m.sources && m.sources.length > 0 && (
+                  <div className="sources">
+                    <span className="sources-label">Sources</span>
+                    {m.sources.map((s, i) => (
+                      <span
+                        key={`${s.source}-${i}`}
+                        className="source-chip"
+                        title={`similarity ${s.score.toFixed(3)}`}
+                      >
+                        <span className="dot" />
+                        {s.source}
+                        <span className="score">{s.score.toFixed(2)}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           ))}
-          {sending && <div className="msg assistant"><div className="role">NyayaBot</div><div className="content muted">Thinking…</div></div>}
+
+          {sending && (
+            <div className="msg msg-assistant">
+              <div className="msg-avatar" aria-hidden>⚖</div>
+              <div className="msg-body">
+                <div className="msg-meta"><span className="msg-role">NyayaBot</span></div>
+                <div className="msg-content typing">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-        <form className="composer" onSubmit={send}>
-          <input
-            placeholder="Ask a legal question…"
+
+        <form className="composer" onSubmit={onSubmit}>
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            placeholder="Ask a legal question…  (Shift+Enter for newline)"
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
             disabled={sending}
           />
-          <button type="submit" disabled={sending || !input.trim()}>Send</button>
+          <button type="submit" disabled={sending || !input.trim()}>
+            {sending ? "…" : "Send"}
+          </button>
         </form>
+        <div className="composer-hint muted small">
+          NyayaBot answers strictly from ingested PDFs. Out-of-scope questions will be refused.
+        </div>
       </main>
     </div>
   );

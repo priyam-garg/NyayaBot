@@ -1,9 +1,12 @@
+import logging
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from functools import lru_cache
 from app.config import get_settings
 from app.services.embeddings import embed_query
 from app.services.qdrant_client import search
+
+log = logging.getLogger("nyayabot.rag")
 
 REFUSAL_MESSAGE = (
     "That question appears to be outside the scope of the legal documents "
@@ -61,9 +64,13 @@ def run_rag(query: str) -> tuple[str, bool, float | None, list[dict]]:
     hits = search(vector, limit=s.top_k)
 
     if not hits:
+        log.warning("RAG: no hits returned from Qdrant for query=%r", query)
         return REFUSAL_MESSAGE, True, None, []
 
     top_score = float(hits[0].score)
+    scores = [round(float(h.score), 3) for h in hits]
+    log.info("RAG query=%r top_score=%.3f all_scores=%s threshold=%.2f",
+             query, top_score, scores, s.similarity_threshold)
     if top_score < s.similarity_threshold:
         return REFUSAL_MESSAGE, True, top_score, []
 

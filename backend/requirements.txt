@@ -1,11 +1,12 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
-pydantic==2.10.4
+pydantic[email]==2.10.4
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
 
 # RAG stack
 langchain==0.3.14
+langchain-text-splitters==0.3.4
 langchain-google-genai==2.0.8
 langchain-qdrant==0.2.0
 qdrant-client==1.12.1
