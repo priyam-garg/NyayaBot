@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     upload_chunk_size: int = 1500
     upload_chunk_overlap: int = 200
 
+    # HyDE: generate a hypothetical answer and embed it instead of the raw query
+    hyde_enabled: bool = True
+    # Cross-encoder reranking: fetch retrieval_top_k, rerank to top_k
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    retrieval_top_k: int = 20
+
     frontend_origin: str = "http://localhost:5173"
 
 

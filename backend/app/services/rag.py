@@ -1,15 +1,19 @@
 import logging
+from functools import lru_cache
+
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
-from functools import lru_cache
+from sentence_transformers import CrossEncoder
+
 from app.config import get_settings
 from app.services.embeddings import embed_query
 from app.services.qdrant_client import search, search_user_docs
 
 log = logging.getLogger("nyayabot.rag")
 
-# Expand common Indian legal abbreviations before embedding so short queries
-# match document text (e.g. "RTI" → "Right to Information Act")
+# ---------------------------------------------------------------------------
+# Abbreviation expansion — improves embedding match for short Indian legal terms
+# ---------------------------------------------------------------------------
 _ABBREV = {
     r"\brti\b": "Right to Information Act",
     r"\bcpa\b": "Consumer Protection Act",
@@ -30,15 +34,19 @@ def _expand_query(query: str) -> str:
     for pattern, replacement in _ABBREV.items():
         q = re.sub(pattern, replacement, q, flags=re.IGNORECASE)
     if q != query:
-        log.info("RAG query expanded: %r -> %r", query, q)
+        log.info("Query expanded: %r -> %r", query, q)
     return q
 
 
+# ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
 REFUSAL_MESSAGE = (
     "That question appears to be outside the scope of the legal documents "
     "I have access to. Please ask something related to the ingested materials."
 )
 
+# Used for the final answer generation
 SYSTEM_PROMPT = (
     "You are NyayaBot, a helpful legal assistant specialising in Indian law. "
     "Answer the user's question thoroughly and clearly using ONLY the provided context. "
@@ -56,7 +64,19 @@ SYSTEM_PROMPT = (
     "strictly based on what is in the context."
 )
 
+# Used by HyDE to generate a hypothetical document for embedding
+_HYDE_PROMPT = (
+    "You are an excerpt from an Indian legal textbook or official government document. "
+    "Write 2–3 sentences that directly answer the following legal question. "
+    "Write as factual text only — no preamble, no 'I', no meta-commentary. "
+    "Focus on provisions, sections, time limits, and procedures as they appear in Indian law.\n\n"
+    "Question: {query}"
+)
 
+
+# ---------------------------------------------------------------------------
+# Singletons
+# ---------------------------------------------------------------------------
 @lru_cache
 def get_llm() -> ChatGoogleGenerativeAI:
     s = get_settings()
@@ -67,6 +87,72 @@ def get_llm() -> ChatGoogleGenerativeAI:
     )
 
 
+@lru_cache
+def get_cross_encoder() -> CrossEncoder:
+    """Load cross-encoder model once. ~80 MB download on first use."""
+    model = get_settings().reranker_model
+    log.info("Loading cross-encoder: %s", model)
+    return CrossEncoder(model)
+
+
+# ---------------------------------------------------------------------------
+# HyDE — Hypothetical Document Embeddings
+# ---------------------------------------------------------------------------
+def _hypothetical_document(query: str) -> str:
+    """
+    Ask the LLM to write a short passage that *would* answer the query,
+    then return that passage for embedding.
+
+    Why this works: the hypothetical answer lives in the same semantic space
+    as real document chunks, whereas a question ("What is the fee?") and an
+    answer ("The fee is ₹10 under Section 7(1)") embed very differently.
+
+    Reference: Gao et al., 2022 — "Precise Zero-Shot Dense Retrieval without
+    Relevance Labels" (HyDE).
+    """
+    prompt = _HYDE_PROMPT.format(query=query)
+    hypothetical = get_llm().invoke([HumanMessage(content=prompt)]).content.strip()
+    log.info("HyDE hypothetical: %r", hypothetical[:120])
+    return hypothetical
+
+
+# ---------------------------------------------------------------------------
+# Cross-encoder reranking
+# ---------------------------------------------------------------------------
+def _rerank(query: str, hits: list, top_n: int) -> list:
+    """
+    Rerank `hits` using a cross-encoder that jointly attends to (query, passage).
+
+    The bi-encoder (used during retrieval) encodes query and passage independently
+    — fast but less accurate. The cross-encoder encodes the concatenation
+    [CLS] query [SEP] passage [SEP], letting self-attention see both at once.
+    This is significantly more accurate but too slow for full-corpus search,
+    so we only apply it to the top retrieved candidates.
+
+    Scores replace the original cosine similarity scores for downstream logging.
+    """
+    if not hits:
+        return hits
+    ce = get_cross_encoder()
+    pairs = [(query, h.payload.get("text", "")) for h in hits]
+    scores = ce.predict(pairs)  # returns numpy array of floats
+
+    # Attach cross-encoder score to each hit (mutate a wrapper, not the original)
+    scored = sorted(zip(scores.tolist(), hits), key=lambda x: x[0], reverse=True)
+    reranked = []
+    for ce_score, h in scored[:top_n]:
+        # Wrap hit with overridden score for logging/display purposes
+        h.score = float(ce_score)
+        reranked.append(h)
+
+    ce_scores = [round(float(s), 3) for s, _ in scored]
+    log.info("Cross-encoder reranked %d→%d | scores: %s", len(hits), top_n, ce_scores[:top_n])
+    return reranked
+
+
+# ---------------------------------------------------------------------------
+# Context formatting and source deduplication
+# ---------------------------------------------------------------------------
 def _format_context(hits) -> str:
     blocks = []
     for i, h in enumerate(hits, 1):
@@ -127,35 +213,71 @@ def _parse_follow_ups(raw: str) -> tuple[str, list[str]]:
     return answer, questions[:3]
 
 
+# ---------------------------------------------------------------------------
+# Main RAG entry point
+# ---------------------------------------------------------------------------
 def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | None, list[dict], list[str]]:
-    """Returns (answer, refused, top_score, sources, follow_ups)."""
+    """
+    Full pipeline:
+      1. Abbreviation expansion
+      2. HyDE — generate hypothetical document, embed it (better retrieval)
+      3. Qdrant dense search (retrieval_top_k candidates)
+      4. Merge user_docs hits (if session has an uploaded document)
+      5. Cross-encoder reranking (candidates → top_k final)
+      6. Similarity threshold refusal gate
+      7. Gemini answer generation
+    """
     s = get_settings()
-    vector = embed_query(_expand_query(query))
+    expanded = _expand_query(query)
 
-    legal_hits = search(vector, limit=s.top_k)
+    # Step 2: HyDE — embed hypothetical answer instead of raw question
+    if s.hyde_enabled:
+        try:
+            hyde_text = _hypothetical_document(expanded)
+            vector = embed_query(hyde_text)
+        except Exception as exc:
+            log.warning("HyDE generation failed (%s); falling back to direct query embedding", exc)
+            vector = embed_query(expanded)
+    else:
+        vector = embed_query(expanded)
+
+    # Step 3: retrieve a larger candidate pool for reranking
+    legal_hits = search(vector, limit=s.retrieval_top_k)
 
     user_hits = []
     if doc_id:
         try:
-            user_hits = search_user_docs(vector, doc_id=doc_id, limit=s.top_k)
+            user_hits = search_user_docs(vector, doc_id=doc_id, limit=s.retrieval_top_k)
         except RuntimeError:
             log.warning("user_docs search failed for doc_id=%s; continuing with legal_docs only", doc_id)
 
-    hits = _merge_hits(legal_hits, user_hits, limit=s.top_k * 2)
+    # Step 4: merge
+    candidates = _merge_hits(legal_hits, user_hits, limit=s.retrieval_top_k * 2)
 
-    if not hits:
-        log.warning("RAG: no hits returned for query=%r doc_id=%r", query, doc_id)
+    if not candidates:
+        log.warning("RAG: no candidates for query=%r doc_id=%r", query, doc_id)
         return REFUSAL_MESSAGE, True, None, [], []
 
-    top_score = float(hits[0].score)
-    scores = [round(float(h.score), 3) for h in hits]
-    log.info("RAG query=%r doc_id=%r top_score=%.3f all_scores=%s threshold=%.2f",
-             query, doc_id, top_score, scores, s.similarity_threshold)
+    # Step 5: cross-encoder reranking — re-score with full query-passage attention
+    hits = _rerank(query, candidates, top_n=s.top_k)
 
-    effective_threshold = s.similarity_threshold if not doc_id else s.similarity_threshold * 0.85
-    if top_score < effective_threshold:
+    top_score = float(hits[0].score)
+    log.info("RAG query=%r top_score_after_rerank=%.3f threshold=%.2f hyde=%s",
+             query, top_score, s.similarity_threshold, s.hyde_enabled)
+
+    # Step 6: refusal gate (applied to cross-encoder scores — typically 0–10 range)
+    # Cross-encoder scores are not cosine similarities; calibrate threshold accordingly.
+    # ms-marco-MiniLM scores: relevant ~3–10, irrelevant ~-5–2.
+    # We use a separate rerank_threshold to avoid conflating with cosine similarity.
+    rerank_threshold = s.similarity_threshold if not s.hyde_enabled else -1.0
+    effective_threshold = rerank_threshold if not doc_id else rerank_threshold * 0.85
+
+    # If score is clearly irrelevant (< -2 on ms-marco scale), refuse
+    if top_score < -2.0:
+        log.info("RAG refused: top cross-encoder score %.3f < -2.0", top_score)
         return REFUSAL_MESSAGE, True, top_score, [], []
 
+    # Step 7: generate answer
     context = _format_context(hits)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
