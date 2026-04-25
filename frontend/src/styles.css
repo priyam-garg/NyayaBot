@@ -54,6 +54,53 @@
   --ok-dot: #6f8d6d;
 }
 
+html[data-theme="dark"] {
+  --parchment: #1a1917;
+  --ivory: #2a2620;
+  --text-main: #fffdf6;
+  --text-strong: #fff9f0;
+  --text-body: #f0e8e0;
+  --text-muted: #d4c8bc;
+  --border-cream: #3a3530;
+  --border-warm: #443f38;
+  --ring-warm: #5a5449;
+  --ring-deep: #6a6459;
+  --warm-sand: #3a3530;
+}
+
+html[data-theme="dark"] .msg-user .msg-content {
+  background: #3a3228;
+  border-color: #4a4238;
+}
+
+html[data-theme="dark"] .msg-assistant.refused .msg-content {
+  background: #3a3228;
+  border-color: #5a5240;
+}
+
+html[data-theme="dark"] .msg-assistant.error-msg .msg-content {
+  background: #3a3228;
+  border-color: #5a4a42;
+}
+
+html[data-theme="dark"] .msg-content code {
+  background: #3a3228;
+  border-color: #4a4238;
+}
+
+html[data-theme="dark"] .msg-content pre {
+  background: #3a3228;
+  border-color: #4a4238;
+}
+
+html[data-theme="dark"] .msg-content th {
+  background: #3a3228;
+}
+
+html[data-theme="dark"] body {
+  background: var(--parchment);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -364,15 +411,23 @@ h3,
 }
 
 .chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   padding: 16px 24px;
   border-bottom: 1px solid var(--border-warm);
   background: color-mix(in srgb, var(--parchment) 88%, #fff 12%);
 }
 
+.chat-header-left {
+  flex: 1;
+  min-width: 0;
+}
+
 .chat-title {
   font-size: 1.5rem;
   line-height: 1.2;
-  color: var(--near-black);
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -380,6 +435,27 @@ h3,
 
 .chat-sub {
   margin-top: 2px;
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-warm);
+  background: transparent;
+  color: var(--text-body);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.18s ease;
+  flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+  background: var(--warm-sand);
+  color: var(--text-strong);
+  border-color: var(--ring-warm);
 }
 
 .messages {

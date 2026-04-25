@@ -18,12 +18,21 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem("nyayabot-theme") === "dark";
+  });
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
 
+  useEffect(() => {
+    const theme = darkMode ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("nyayabot-theme", theme);
+  }, [darkMode]);
+
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeId) || null,
-    [sessions, activeId]
+    [sessions, activeId],
   );
 
   const loadSessions = async () => {
@@ -87,7 +96,10 @@ export default function Chat() {
     setSending(true);
 
     try {
-      const { data } = await api.post("/chat", { session_id: sessionId, message: text });
+      const { data } = await api.post("/chat", {
+        session_id: sessionId,
+        message: text,
+      });
       setMessages((m) => [
         ...m,
         {
@@ -156,14 +168,20 @@ export default function Chat() {
               {s.title}
             </li>
           ))}
-          {sessions.length === 0 && <li className="muted small">No chats yet</li>}
+          {sessions.length === 0 && (
+            <li className="muted small">No chats yet</li>
+          )}
         </ul>
         <div className="sidebar-foot">
           <div className="user-row">
             <div className="avatar">{initials}</div>
             <div className="user-meta">
-              <div className="user-email" title={user?.email}>{user?.email}</div>
-              <button className="link" onClick={logout}>Sign out</button>
+              <div className="user-email" title={user?.email}>
+                {user?.email}
+              </div>
+              <button className="link" onClick={logout}>
+                Sign out
+              </button>
             </div>
           </div>
         </div>
@@ -171,8 +189,21 @@ export default function Chat() {
 
       <main className="chat-main">
         <header className="chat-header">
-          <div className="chat-title">{activeSession?.title || "New conversation"}</div>
-          <div className="chat-sub muted small">Grounded in your ingested legal documents</div>
+          <div className="chat-header-left">
+            <div className="chat-title">
+              {activeSession?.title || "New conversation"}
+            </div>
+            <div className="chat-sub muted small">
+              Grounded in your ingested legal documents
+            </div>
+          </div>
+          <button
+            className="theme-toggle"
+            onClick={() => setDarkMode(!darkMode)}
+            title="Toggle dark mode"
+          >
+            {darkMode ? "☀️" : "🌙"}
+          </button>
         </header>
 
         <div className="messages" ref={scrollRef}>
@@ -183,7 +214,11 @@ export default function Chat() {
               <p className="muted">Try one of these to get started:</p>
               <div className="suggestions">
                 {SUGGESTED.map((q) => (
-                  <button key={q} className="suggestion" onClick={() => sendText(q)}>
+                  <button
+                    key={q}
+                    className="suggestion"
+                    onClick={() => sendText(q)}
+                  >
                     {q}
                   </button>
                 ))}
@@ -201,56 +236,79 @@ export default function Chat() {
               </div>
               <div className="msg-body">
                 <div className="msg-meta">
-                  <span className="msg-role">{m.role === "user" ? "You" : "NyayaBot"}</span>
-                  {m.refused && <span className="badge badge-warn">out of scope</span>}
+                  <span className="msg-role">
+                    {m.role === "user" ? "You" : "NyayaBot"}
+                  </span>
+                  {m.refused && (
+                    <span className="badge badge-warn">out of scope</span>
+                  )}
                   {m.error && <span className="badge badge-err">error</span>}
                 </div>
                 <div className="msg-content">
                   {m.role === "assistant" ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {m.content}
+                    </ReactMarkdown>
                   ) : (
                     m.content
                   )}
                 </div>
-                {m.role === "assistant" && m.sources && m.sources.length > 0 && (
-                  <div className="sources">
-                    <span className="sources-label">Sources</span>
-                    {m.sources.map((s, i) => (
-                      <span
-                        key={`${s.source}-${i}`}
-                        className="source-chip"
-                        title={`similarity ${s.score.toFixed(3)}`}
-                      >
-                        <span className="dot" />
-                        {s.source}
-                        <span className="score">{s.score.toFixed(2)}</span>
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {m.role === "assistant" && !m.refused && m.follow_ups && m.follow_ups.length > 0 && (
-                  <div className="follow-ups">
-                    <span className="follow-ups-label">You might also ask</span>
-                    <div className="follow-ups-grid">
-                      {m.follow_ups.map((q, i) => (
-                        <button key={i} className="follow-up-btn" onClick={() => sendText(q)}>
-                          {q}
-                        </button>
+                {m.role === "assistant" &&
+                  m.sources &&
+                  m.sources.length > 0 && (
+                    <div className="sources">
+                      <span className="sources-label">Sources</span>
+                      {m.sources.map((s, i) => (
+                        <span
+                          key={`${s.source}-${i}`}
+                          className="source-chip"
+                          title={`similarity ${s.score.toFixed(3)}`}
+                        >
+                          <span className="dot" />
+                          {s.source}
+                          <span className="score">{s.score.toFixed(2)}</span>
+                        </span>
                       ))}
                     </div>
-                  </div>
-                )}
+                  )}
+                {m.role === "assistant" &&
+                  !m.refused &&
+                  m.follow_ups &&
+                  m.follow_ups.length > 0 && (
+                    <div className="follow-ups">
+                      <span className="follow-ups-label">
+                        You might also ask
+                      </span>
+                      <div className="follow-ups-grid">
+                        {m.follow_ups.map((q, i) => (
+                          <button
+                            key={i}
+                            className="follow-up-btn"
+                            onClick={() => sendText(q)}
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
               </div>
             </div>
           ))}
 
           {sending && (
             <div className="msg msg-assistant">
-              <div className="msg-avatar" aria-hidden>⚖</div>
+              <div className="msg-avatar" aria-hidden>
+                ⚖
+              </div>
               <div className="msg-body">
-                <div className="msg-meta"><span className="msg-role">NyayaBot</span></div>
+                <div className="msg-meta">
+                  <span className="msg-role">NyayaBot</span>
+                </div>
                 <div className="msg-content typing">
-                  <span></span><span></span><span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
                 </div>
               </div>
             </div>
@@ -272,7 +330,8 @@ export default function Chat() {
           </button>
         </form>
         <div className="composer-hint muted small">
-          NyayaBot answers strictly from ingested PDFs. Out-of-scope questions will be refused.
+          NyayaBot answers strictly from ingested PDFs. Out-of-scope questions
+          will be refused.
         </div>
       </main>
     </div>
