@@ -34,7 +34,10 @@ async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> Ch
         "created_at": now,
     })
 
-    answer, refused, top_score, sources, follow_ups = await asyncio.to_thread(run_rag, body.message)
+    try:
+        answer, refused, top_score, sources, follow_ups = await asyncio.to_thread(run_rag, body.message)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
 
     await messages_col().insert_one({
         "session_id": body.session_id,
