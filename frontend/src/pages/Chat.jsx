@@ -84,16 +84,17 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    return localStorage.getItem("nyayabot-theme") === "dark";
+  });
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Document upload state
   const [sessionDoc, setSessionDoc] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
 
-  // Scenario mode state
   const [scenarioMode, setScenarioMode] = useState(false);
   const [scenario, setScenario] = useState({
     what: "",
@@ -103,9 +104,15 @@ export default function Chat() {
     outcome: "know my rights",
   });
 
+  useEffect(() => {
+    const theme = darkMode ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("nyayabot-theme", theme);
+  }, [darkMode]);
+
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeId) || null,
-    [sessions, activeId]
+    [sessions, activeId],
   );
 
   const loadSessions = async () => {
@@ -308,17 +315,26 @@ export default function Chat() {
 
       <main className="chat-main">
         <header className="chat-header">
-          <div className="chat-title">{activeSession?.title || "New conversation"}</div>
-          <div className="chat-sub muted small">Grounded in your ingested legal documents</div>
-          {sessionDoc && (
-            <div className="doc-indicator">
-              <span className="doc-indicator-icon">📄</span>
-              <span className="doc-indicator-name" title={sessionDoc.display_name}>
-                {sessionDoc.display_name}
-              </span>
-              <span className="doc-indicator-badge">{sessionDoc.chunk_count} chunks</span>
-            </div>
-          )}
+          <div className="chat-header-left">
+            <div className="chat-title">{activeSession?.title || "New conversation"}</div>
+            <div className="chat-sub muted small">Grounded in your ingested legal documents</div>
+            {sessionDoc && (
+              <div className="doc-indicator">
+                <span className="doc-indicator-icon">📄</span>
+                <span className="doc-indicator-name" title={sessionDoc.display_name}>
+                  {sessionDoc.display_name}
+                </span>
+                <span className="doc-indicator-badge">{sessionDoc.chunk_count} chunks</span>
+              </div>
+            )}
+          </div>
+          <button
+            className="theme-toggle"
+            onClick={() => setDarkMode(!darkMode)}
+            title="Toggle dark mode"
+          >
+            {darkMode ? "☀️" : "🌙"}
+          </button>
         </header>
 
         <div className="messages" ref={scrollRef}>
