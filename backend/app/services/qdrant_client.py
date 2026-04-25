@@ -1,11 +1,9 @@
-from functools import lru_cache
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 from app.config import get_settings
 from app.services.embeddings import vector_size
 
 
-@lru_cache
 def get_qdrant() -> QdrantClient:
     s = get_settings()
     return QdrantClient(url=s.qdrant_url, api_key=s.qdrant_api_key, timeout=30.0)

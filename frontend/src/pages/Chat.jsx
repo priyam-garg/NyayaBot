@@ -98,6 +98,7 @@ export default function Chat() {
           created_at: new Date().toISOString(),
           refused: data.refused,
           sources: data.sources || [],
+          follow_ups: data.follow_ups || [],
         },
       ]);
       loadSessions();
@@ -225,6 +226,18 @@ export default function Chat() {
                         <span className="score">{s.score.toFixed(2)}</span>
                       </span>
                     ))}
+                  </div>
+                )}
+                {m.role === "assistant" && !m.refused && m.follow_ups && m.follow_ups.length > 0 && (
+                  <div className="follow-ups">
+                    <span className="follow-ups-label">You might also ask</span>
+                    <div className="follow-ups-grid">
+                      {m.follow_ups.map((q, i) => (
+                        <button key={i} className="follow-up-btn" onClick={() => sendText(q)}>
+                          {q}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

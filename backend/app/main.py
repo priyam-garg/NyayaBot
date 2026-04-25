@@ -11,10 +11,17 @@ from app.services.qdrant_client import ensure_collection
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
+log = logging.getLogger("nyayabot.startup")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ensure_indexes()
-    ensure_collection()
+    try:
+        ensure_collection()
+    except Exception as exc:
+        log.warning("Qdrant unreachable at startup (cluster may be hibernated): %s", exc)
+        log.warning("Chat will fail until Qdrant is reachable. Resume the cluster at cloud.qdrant.io")
     yield
 
 
