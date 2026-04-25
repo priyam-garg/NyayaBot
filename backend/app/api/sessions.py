@@ -23,6 +23,7 @@ def _session_out(doc) -> SessionOut:
         title=doc.get("title") or "New chat",
         created_at=doc["created_at"],
         updated_at=doc["updated_at"],
+        doc_id=doc.get("doc_id"),
     )
 
 

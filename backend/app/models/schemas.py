@@ -34,12 +34,14 @@ class SessionOut(BaseModel):
     title: str
     created_at: datetime
     updated_at: datetime
+    doc_id: str | None = None
 
 
 class Source(BaseModel):
     source: str
     score: float
     chunk_index: int
+    origin: str = "legal"
 
 
 class MessageOut(BaseModel):
@@ -62,6 +64,21 @@ class ChatResponse(BaseModel):
     top_score: float | None = None
     sources: list[Source] = []
     follow_ups: list[str] = []
+
+
+class DocumentOut(BaseModel):
+    doc_id: str
+    session_id: str
+    filename: str
+    display_name: str
+    chunk_count: int
+    uploaded_at: datetime
+
+
+class UploadResponse(BaseModel):
+    doc_id: str
+    display_name: str
+    chunk_count: int
 
 
 TokenResponse.model_rebuild()

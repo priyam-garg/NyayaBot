@@ -25,7 +25,14 @@ def messages_col() -> AsyncIOMotorCollection:
     return get_db()["messages"]
 
 
+def documents_col() -> AsyncIOMotorCollection:
+    return get_db()["documents"]
+
+
 async def ensure_indexes() -> None:
     await users_col().create_index("email", unique=True)
     await sessions_col().create_index([("user_id", ASCENDING), ("updated_at", DESCENDING)])
     await messages_col().create_index([("session_id", ASCENDING), ("created_at", ASCENDING)])
+    await documents_col().create_index("session_id", unique=True)
+    await documents_col().create_index("doc_id", unique=True)
+    await documents_col().create_index([("user_id", ASCENDING), ("uploaded_at", DESCENDING)])

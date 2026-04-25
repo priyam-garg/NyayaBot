@@ -4,7 +4,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from functools import lru_cache
 from app.config import get_settings
 from app.services.embeddings import embed_query
-from app.services.qdrant_client import search
+from app.services.qdrant_client import search, search_user_docs
 
 log = logging.getLogger("nyayabot.rag")
 
@@ -84,13 +84,31 @@ def _dedupe_sources(hits) -> list[dict]:
         payload = h.payload or {}
         src = payload.get("source", "unknown")
         score = float(h.score)
+        origin = "user_doc" if payload.get("doc_id") else "legal"
         if src not in best or score > best[src]["score"]:
             best[src] = {
                 "source": payload.get("document_title") or src,
                 "score": score,
                 "chunk_index": int(payload.get("chunk_index", 0)),
+                "origin": origin,
             }
     return sorted(best.values(), key=lambda x: x["score"], reverse=True)
+
+
+def _merge_hits(legal_hits: list, user_hits: list, limit: int) -> list:
+    """Merge two hit lists by score descending, deduplicate by point id."""
+    seen_ids: set = set()
+    combined = []
+    for h in legal_hits:
+        if h.id not in seen_ids:
+            seen_ids.add(h.id)
+            combined.append(h)
+    for h in user_hits:
+        if h.id not in seen_ids:
+            seen_ids.add(h.id)
+            combined.append(h)
+    combined.sort(key=lambda h: h.score, reverse=True)
+    return combined[:limit]
 
 
 def _parse_follow_ups(raw: str) -> tuple[str, list[str]]:
@@ -109,24 +127,33 @@ def _parse_follow_ups(raw: str) -> tuple[str, list[str]]:
     return answer, questions[:3]
 
 
-def run_rag(query: str) -> tuple[str, bool, float | None, list[dict], list[str]]:
+def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | None, list[dict], list[str]]:
     """Returns (answer, refused, top_score, sources, follow_ups)."""
     s = get_settings()
     vector = embed_query(_expand_query(query))
-    hits = search(vector, limit=s.top_k)
+
+    legal_hits = search(vector, limit=s.top_k)
+
+    user_hits = []
+    if doc_id:
+        try:
+            user_hits = search_user_docs(vector, doc_id=doc_id, limit=s.top_k)
+        except RuntimeError:
+            log.warning("user_docs search failed for doc_id=%s; continuing with legal_docs only", doc_id)
+
+    hits = _merge_hits(legal_hits, user_hits, limit=s.top_k * 2)
 
     if not hits:
-        log.warning("⚠️  Qdrant: No hits found for query=%r", query)
+        log.warning("RAG: no hits returned for query=%r doc_id=%r", query, doc_id)
         return REFUSAL_MESSAGE, True, None, [], []
 
     top_score = float(hits[0].score)
     scores = [round(float(h.score), 3) for h in hits]
-    status = "✅ PASS" if top_score >= s.similarity_threshold else "❌ FAIL"
-    log.info(
-        "%s | Qdrant similarity check | Query: %r | Top score: %.3f | Threshold: %.2f | All scores: %s",
-        status, query[:50], top_score, s.similarity_threshold, scores
-    )
-    if top_score < s.similarity_threshold:
+    log.info("RAG query=%r doc_id=%r top_score=%.3f all_scores=%s threshold=%.2f",
+             query, doc_id, top_score, scores, s.similarity_threshold)
+
+    effective_threshold = s.similarity_threshold if not doc_id else s.similarity_threshold * 0.85
+    if top_score < effective_threshold:
         return REFUSAL_MESSAGE, True, top_score, [], []
 
     context = _format_context(hits)

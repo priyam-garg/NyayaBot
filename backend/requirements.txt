@@ -21,3 +21,4 @@ pymongo==4.9.2
 # Auth
 bcrypt==4.2.1
 python-jose[cryptography]==3.3.0
+python-multipart==0.0.20

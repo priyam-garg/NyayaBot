@@ -11,6 +11,72 @@ const SUGGESTED = [
   "Who can file an appeal under the RTI Act?",
 ];
 
+const SCENARIO_PREFIX = "[SCENARIO]";
+
+const WHO_OPTIONS = ["landlord", "employer", "police", "government", "seller", "bank", "builder", "hospital", "other"];
+
+const WHERE_OPTIONS = [
+  "Pan-India", "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar",
+  "Chhattisgarh", "Goa", "Gujarat", "Haryana", "Himachal Pradesh",
+  "Jharkhand", "Karnataka", "Kerala", "Madhya Pradesh", "Maharashtra",
+  "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha", "Punjab",
+  "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana", "Tripura",
+  "Uttar Pradesh", "Uttarakhand", "West Bengal", "Delhi",
+  "Jammu & Kashmir", "Ladakh",
+];
+
+const OUTCOME_OPTIONS = [
+  { value: "know my rights", label: "Know my rights" },
+  { value: "file a complaint", label: "File a complaint" },
+  { value: "get compensation", label: "Get compensation" },
+  { value: "understand procedure", label: "Understand procedure" },
+  { value: "other", label: "Other" },
+];
+
+function isScenarioMessage(content) {
+  return typeof content === "string" && content.startsWith(SCENARIO_PREFIX);
+}
+
+function parseScenarioMessage(content) {
+  try {
+    const jsonPart = content.slice(SCENARIO_PREFIX.length).split("\n")[0];
+    return JSON.parse(jsonPart);
+  } catch {
+    return null;
+  }
+}
+
+function ScenarioCard({ data }) {
+  if (!data) return <span className="muted">[Scenario message]</span>;
+  return (
+    <div className="scenario-card">
+      <div className="scenario-card-title">Legal Scenario</div>
+      <dl className="scenario-fields">
+        {data.what && (<><dt>What happened</dt><dd>{data.what}</dd></>)}
+        {data.who && (<><dt>Who is involved</dt><dd className="capitalize">{data.who}</dd></>)}
+        {data.when && (<><dt>When</dt><dd>{data.when}</dd></>)}
+        {data.where && (<><dt>Where</dt><dd>{data.where}</dd></>)}
+        {data.outcome && (<><dt>What I want</dt><dd className="capitalize">{data.outcome}</dd></>)}
+      </dl>
+    </div>
+  );
+}
+
+function buildScenarioQuery(sc) {
+  const outcomeVerb = sc.outcome === "other" ? "understand my options" : sc.outcome;
+  const natural =
+    `Situation: My ${sc.who} ${sc.what.trim()} in ${sc.where}${sc.when ? " " + sc.when.trim() : ""}. ` +
+    `I want to ${outcomeVerb}. What are my legal rights and remedies?`;
+  const structured = JSON.stringify({
+    what: sc.what,
+    who: sc.who,
+    when: sc.when,
+    where: sc.where,
+    outcome: sc.outcome,
+  });
+  return `${SCENARIO_PREFIX}${structured}\n${natural}`;
+}
+
 export default function Chat() {
   const { user, logout } = useAuth();
   const [sessions, setSessions] = useState([]);
@@ -20,6 +86,22 @@ export default function Chat() {
   const [sending, setSending] = useState(false);
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  // Document upload state
+  const [sessionDoc, setSessionDoc] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+
+  // Scenario mode state
+  const [scenarioMode, setScenarioMode] = useState(false);
+  const [scenario, setScenario] = useState({
+    what: "",
+    who: "landlord",
+    when: "",
+    where: "Pan-India",
+    outcome: "know my rights",
+  });
 
   const activeSession = useMemo(
     () => sessions.find((s) => s.id === activeId) || null,
@@ -53,8 +135,14 @@ export default function Chat() {
 
   const selectSession = async (id) => {
     setActiveId(id);
-    const { data } = await api.get(`/sessions/${id}/messages`);
-    setMessages(data);
+    setSessionDoc(null);
+    setUploadError("");
+    const [{ data: msgs }, docRes] = await Promise.all([
+      api.get(`/sessions/${id}/messages`),
+      api.get(`/documents/${id}`).catch(() => ({ data: null })),
+    ]);
+    setMessages(msgs);
+    setSessionDoc(docRes.data || null);
   };
 
   const newSession = async () => {
@@ -62,6 +150,8 @@ export default function Chat() {
     setSessions((s) => [data, ...s]);
     setActiveId(data.id);
     setMessages([]);
+    setSessionDoc(null);
+    setUploadError("");
   };
 
   const sendText = async (text) => {
@@ -119,6 +209,52 @@ export default function Chat() {
     }
   };
 
+  const sendScenario = async () => {
+    if (!scenario.what.trim() || sending) return;
+    const message = buildScenarioQuery(scenario);
+    setScenarioMode(false);
+    setScenario({ what: "", who: "landlord", when: "", where: "Pan-India", outcome: "know my rights" });
+    await sendText(message);
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+      setUploadError("Only PDF files are accepted.");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError("File exceeds the 10 MB limit.");
+      return;
+    }
+
+    let sessionId = activeId;
+    if (!sessionId) {
+      const { data } = await api.post("/sessions", {});
+      setSessions((s) => [data, ...s]);
+      sessionId = data.id;
+      setActiveId(sessionId);
+    }
+
+    setUploading(true);
+    setUploadError("");
+    try {
+      const form = new FormData();
+      form.append("session_id", sessionId);
+      form.append("file", file);
+      const { data } = await api.post("/documents/upload", form);
+      setSessionDoc(data);
+      loadSessions();
+    } catch (err) {
+      setUploadError(err?.response?.data?.detail || "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const onSubmit = (e) => {
     e.preventDefault();
     sendText(input.trim());
@@ -153,6 +289,7 @@ export default function Chat() {
               onClick={() => selectSession(s.id)}
               title={s.title}
             >
+              {s.doc_id && <span className="session-doc-dot" title="Has document" />}
               {s.title}
             </li>
           ))}
@@ -173,6 +310,15 @@ export default function Chat() {
         <header className="chat-header">
           <div className="chat-title">{activeSession?.title || "New conversation"}</div>
           <div className="chat-sub muted small">Grounded in your ingested legal documents</div>
+          {sessionDoc && (
+            <div className="doc-indicator">
+              <span className="doc-indicator-icon">📄</span>
+              <span className="doc-indicator-name" title={sessionDoc.display_name}>
+                {sessionDoc.display_name}
+              </span>
+              <span className="doc-indicator-badge">{sessionDoc.chunk_count} chunks</span>
+            </div>
+          )}
         </header>
 
         <div className="messages" ref={scrollRef}>
@@ -208,6 +354,8 @@ export default function Chat() {
                 <div className="msg-content">
                   {m.role === "assistant" ? (
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                  ) : isScenarioMessage(m.content) ? (
+                    <ScenarioCard data={parseScenarioMessage(m.content)} />
                   ) : (
                     m.content
                   )}
@@ -218,10 +366,13 @@ export default function Chat() {
                     {m.sources.map((s, i) => (
                       <span
                         key={`${s.source}-${i}`}
-                        className="source-chip"
+                        className={`source-chip${s.origin === "user_doc" ? " source-chip--user" : ""}`}
                         title={`similarity ${s.score.toFixed(3)}`}
                       >
                         <span className="dot" />
+                        {s.origin === "user_doc" && (
+                          <span className="source-origin-label">Your Doc · </span>
+                        )}
                         {s.source}
                         <span className="score">{s.score.toFixed(2)}</span>
                       </span>
@@ -257,22 +408,131 @@ export default function Chat() {
           )}
         </div>
 
-        <form className="composer" onSubmit={onSubmit}>
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            placeholder="Ask a legal question…  (Shift+Enter for newline)"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            disabled={sending}
-          />
-          <button type="submit" disabled={sending || !input.trim()}>
-            {sending ? "…" : "Send"}
-          </button>
-        </form>
-        <div className="composer-hint muted small">
-          NyayaBot answers strictly from ingested PDFs. Out-of-scope questions will be refused.
+        <div className="composer-wrap">
+          <div className="composer-mode-row">
+            <button
+              type="button"
+              className={`mode-tab${!scenarioMode ? " mode-tab--active" : ""}`}
+              onClick={() => setScenarioMode(false)}
+            >
+              Free text
+            </button>
+            <button
+              type="button"
+              className={`mode-tab${scenarioMode ? " mode-tab--active" : ""}`}
+              onClick={() => setScenarioMode(true)}
+            >
+              Describe situation
+            </button>
+          </div>
+
+          {scenarioMode ? (
+            <div className="scenario-form">
+              <textarea
+                className="scenario-textarea"
+                rows={3}
+                placeholder="What happened? Describe in your own words…"
+                value={scenario.what}
+                onChange={(e) => setScenario((s) => ({ ...s, what: e.target.value }))}
+                disabled={sending}
+              />
+              <div className="scenario-row">
+                <label>Who is involved?</label>
+                <select
+                  value={scenario.who}
+                  onChange={(e) => setScenario((s) => ({ ...s, who: e.target.value }))}
+                  disabled={sending}
+                >
+                  {WHO_OPTIONS.map((o) => (
+                    <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="scenario-row">
+                <label>When?</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 3 months ago, Jan 2025"
+                  value={scenario.when}
+                  onChange={(e) => setScenario((s) => ({ ...s, when: e.target.value }))}
+                  disabled={sending}
+                />
+              </div>
+              <div className="scenario-row">
+                <label>Where?</label>
+                <select
+                  value={scenario.where}
+                  onChange={(e) => setScenario((s) => ({ ...s, where: e.target.value }))}
+                  disabled={sending}
+                >
+                  {WHERE_OPTIONS.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="scenario-row">
+                <label>What outcome?</label>
+                <select
+                  value={scenario.outcome}
+                  onChange={(e) => setScenario((s) => ({ ...s, outcome: e.target.value }))}
+                  disabled={sending}
+                >
+                  {OUTCOME_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="scenario-actions">
+                <button
+                  type="button"
+                  className="scenario-submit-btn"
+                  onClick={sendScenario}
+                  disabled={sending || !scenario.what.trim()}
+                >
+                  {sending ? "…" : "Analyse my situation"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <form className="composer" onSubmit={onSubmit}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                className="upload-input-hidden"
+                onChange={handleFileChange}
+              />
+              <button
+                type="button"
+                className={`upload-btn${sessionDoc ? " upload-btn--has-doc" : ""}`}
+                title={sessionDoc ? `Document: ${sessionDoc.display_name}` : "Upload PDF document"}
+                onClick={() => !sessionDoc && fileInputRef.current?.click()}
+                disabled={uploading || !!sessionDoc}
+                aria-label="Upload document"
+              >
+                {uploading ? "…" : sessionDoc ? "📄" : "⊕"}
+              </button>
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                placeholder="Ask a legal question…  (Shift+Enter for newline)"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                disabled={sending}
+              />
+              <button type="submit" disabled={sending || !input.trim()}>
+                {sending ? "…" : "Send"}
+              </button>
+            </form>
+          )}
+
+          {uploadError && (
+            <div className="upload-error small">{uploadError}</div>
+          )}
+          <div className="composer-hint muted small">
+            NyayaBot answers strictly from ingested PDFs. Out-of-scope questions will be refused.
+          </div>
         </div>
       </main>
     </div>

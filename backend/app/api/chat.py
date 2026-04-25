@@ -13,10 +13,20 @@ from app.services.security import current_user_id
 log = logging.getLogger("nyayabot.chat")
 router = APIRouter(prefix="/chat", tags=["chat"])
 
+_SCENARIO_PREFIX = "[SCENARIO]"
+
+
+def _extract_rag_query(message: str) -> str:
+    """Strip [SCENARIO]{json} prefix from scenario messages, returning only the natural language line."""
+    if message.startswith(_SCENARIO_PREFIX):
+        lines = message.split("\n", 1)
+        if len(lines) > 1:
+            return lines[1].strip()
+    return message
+
 
 @router.post("", response_model=ChatResponse)
 async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> ChatResponse:
-    log.info("💬 Chat request received | Query: %r | User: %s", body.message[:50], user_id)
     try:
         sid = ObjectId(body.session_id)
     except (InvalidId, TypeError):
@@ -34,8 +44,11 @@ async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> Ch
         "created_at": now,
     })
 
+    doc_id: str | None = session.get("doc_id")
+    rag_query = _extract_rag_query(body.message)
+
     try:
-        answer, refused, top_score, sources, follow_ups = await asyncio.to_thread(run_rag, body.message)
+        answer, refused, top_score, sources, follow_ups = await asyncio.to_thread(run_rag, rag_query, doc_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc))
 
@@ -49,7 +62,11 @@ async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> Ch
 
     update = {"updated_at": datetime.now(timezone.utc)}
     if session.get("title") in (None, "", "New chat"):
-        update["title"] = body.message.strip()[:60]
+        if body.message.startswith(_SCENARIO_PREFIX):
+            title_text = _extract_rag_query(body.message)
+        else:
+            title_text = body.message.strip()
+        update["title"] = title_text[:60]
     await sessions_col().update_one({"_id": sid}, {"$set": update})
 
     return ChatResponse(answer=answer, refused=refused, top_score=top_score, sources=sources, follow_ups=follow_ups)

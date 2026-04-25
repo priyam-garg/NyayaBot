@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     similarity_threshold: float = 0.6
     top_k: int = 5
 
+    user_docs_collection: str = "user_docs"
+    max_upload_bytes: int = 10 * 1024 * 1024
+    upload_chunk_size: int = 1500
+    upload_chunk_overlap: int = 200
+
     frontend_origin: str = "http://localhost:5173"
 
 

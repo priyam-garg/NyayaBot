@@ -832,8 +832,12 @@ h3,
 
 .composer-hint {
   text-align: center;
-  padding: 4px 24px 14px;
+  padding: 4px 0 14px;
   color: var(--text-muted);
+}
+
+.composer {
+  padding: 0 0 6px;
 }
 
 @keyframes rise {
@@ -846,6 +850,268 @@ h3,
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* ───── Composer wrap ───── */
+.composer-wrap {
+  background: color-mix(in srgb, var(--parchment) 92%, #fff 8%);
+  padding: 10px 24px 0;
+  border-top: 1px solid var(--border-warm);
+}
+
+/* ───── Mode toggle ───── */
+.composer-mode-row {
+  display: flex;
+  gap: 6px;
+  padding-bottom: 10px;
+}
+
+.mode-tab {
+  padding: 5px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-warm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.mode-tab:hover {
+  background: var(--ivory);
+  color: var(--text-body);
+}
+
+.mode-tab--active {
+  background: var(--terracotta);
+  border-color: var(--terracotta);
+  color: var(--ivory);
+  font-weight: 600;
+}
+
+/* ───── Document upload ───── */
+.upload-input-hidden {
+  display: none;
+}
+
+.upload-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--border-warm);
+  background: var(--ivory);
+  color: var(--text-body);
+  font-size: 1rem;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: box-shadow 0.15s, background 0.15s, transform 0.15s;
+}
+
+.upload-btn:hover:not(:disabled) {
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--ring-warm);
+  transform: translateY(-1px);
+}
+
+.upload-btn:disabled {
+  cursor: default;
+}
+
+.upload-btn--has-doc {
+  background: #edf5ec;
+  border-color: #b8d4b6;
+  color: var(--ok-dot);
+}
+
+.doc-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 3px 10px;
+  background: #edf5ec;
+  border: 1px solid #b8d4b6;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  color: #3a5c39;
+}
+
+.doc-indicator-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.doc-indicator-badge {
+  color: var(--ok-dot);
+  font-size: 0.7rem;
+}
+
+.upload-error {
+  padding: 4px 0 4px;
+  color: var(--error);
+}
+
+.source-chip--user {
+  background: #edf5ec;
+  border-color: #b8d4b6;
+}
+
+.source-chip--user .dot {
+  background: #4a7c48;
+}
+
+.source-origin-label {
+  color: #3a5c39;
+  font-weight: 600;
+}
+
+.session-doc-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok-dot);
+  margin-right: 5px;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* ───── Scenario form ───── */
+.scenario-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 6px;
+}
+
+.scenario-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-warm);
+  background: #fff;
+  color: var(--text-main);
+  font-size: 0.96rem;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 72px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.scenario-textarea:focus {
+  border-color: var(--focus-blue);
+  box-shadow: 0 0 0 1px var(--focus-blue);
+}
+
+.scenario-row {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  align-items: center;
+  gap: 10px;
+}
+
+.scenario-row label {
+  font-size: 0.84rem;
+  color: var(--text-body);
+  font-weight: 500;
+}
+
+.scenario-row select,
+.scenario-row input[type="text"] {
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border-warm);
+  background: #fff;
+  color: var(--text-main);
+  font-size: 0.9rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.scenario-row select:focus,
+.scenario-row input[type="text"]:focus {
+  border-color: var(--focus-blue);
+  box-shadow: 0 0 0 1px var(--focus-blue);
+}
+
+.scenario-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.scenario-submit-btn {
+  padding: 9px 20px;
+  border-radius: 12px;
+  border: none;
+  background: var(--terracotta);
+  color: var(--ivory);
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.95rem;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.scenario-submit-btn:hover:not(:disabled) {
+  background: var(--coral);
+  transform: translateY(-1px);
+}
+
+.scenario-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ───── Scenario card (message display) ───── */
+.scenario-card {
+  background: #f7f2eb;
+  border: 1px solid #e3d9c9;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 0.93rem;
+}
+
+.scenario-card-title {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--terracotta);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.scenario-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 14px;
+  margin: 0;
+}
+
+.scenario-fields dt {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+  padding-top: 1px;
+}
+
+.scenario-fields dd {
+  margin: 0;
+  color: var(--text-main);
+  line-height: 1.5;
+}
+
+.capitalize {
+  text-transform: capitalize;
 }
 
 ::-webkit-scrollbar {
@@ -940,5 +1206,18 @@ h3,
   .composer button {
     height: 42px;
     min-width: 72px;
+  }
+
+  .scenario-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .scenario-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .composer-wrap {
+    padding: 10px 14px 0;
   }
 }
