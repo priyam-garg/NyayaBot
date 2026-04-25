@@ -116,13 +116,16 @@ def run_rag(query: str) -> tuple[str, bool, float | None, list[dict], list[str]]
     hits = search(vector, limit=s.top_k)
 
     if not hits:
-        log.warning("RAG: no hits returned from Qdrant for query=%r", query)
+        log.warning("⚠️  Qdrant: No hits found for query=%r", query)
         return REFUSAL_MESSAGE, True, None, [], []
 
     top_score = float(hits[0].score)
     scores = [round(float(h.score), 3) for h in hits]
-    log.info("RAG query=%r top_score=%.3f all_scores=%s threshold=%.2f",
-             query, top_score, scores, s.similarity_threshold)
+    status = "✅ PASS" if top_score >= s.similarity_threshold else "❌ FAIL"
+    log.info(
+        "%s | Qdrant similarity check | Query: %r | Top score: %.3f | Threshold: %.2f | All scores: %s",
+        status, query[:50], top_score, s.similarity_threshold, scores
+    )
     if top_score < s.similarity_threshold:
         return REFUSAL_MESSAGE, True, top_score, [], []
 

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -9,11 +10,13 @@ from app.services.mongo import sessions_col, messages_col
 from app.services.rag import run_rag
 from app.services.security import current_user_id
 
+log = logging.getLogger("nyayabot.chat")
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 @router.post("", response_model=ChatResponse)
 async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> ChatResponse:
+    log.info("💬 Chat request received | Query: %r | User: %s", body.message[:50], user_id)
     try:
         sid = ObjectId(body.session_id)
     except (InvalidId, TypeError):

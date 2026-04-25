@@ -715,6 +715,62 @@ h3,
   font-weight: 600;
 }
 
+.follow-ups {
+  margin-top: 10px;
+}
+
+.follow-ups-label {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+}
+
+.follow-ups-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.follow-up-btn {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  text-align: left;
+  background: var(--warm-sand);
+  color: var(--text-strong);
+  font-size: 0.88rem;
+  font-weight: 500;
+  line-height: 1.45;
+  cursor: pointer;
+  box-shadow:
+    var(--warm-sand) 0 0 0 0,
+    var(--ring-warm) 0 0 0 1px;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.follow-up-btn:hover {
+  background: #eee9dd;
+  transform: translateY(-1px);
+  box-shadow:
+    #eee9dd 0 0 0 0,
+    var(--ring-deep) 0 0 0 1px;
+}
+
+.follow-up-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    #eee9dd 0 0 0 0,
+    var(--ring-deep) 0 0 0 1px,
+    0 0 0 2px color-mix(in srgb, var(--focus-blue) 50%, transparent);
+}
+
 .composer {
   display: flex;
   gap: 8px;
@@ -859,6 +915,10 @@ h3,
   }
 
   .suggestions {
+    grid-template-columns: 1fr;
+  }
+
+  .follow-ups-grid {
     grid-template-columns: 1fr;
   }
 
