@@ -31,7 +31,7 @@ async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> Ch
         "created_at": now,
     })
 
-    answer, refused, top_score, sources = await asyncio.to_thread(run_rag, body.message)
+    answer, refused, top_score, sources, follow_ups = await asyncio.to_thread(run_rag, body.message)
 
     await messages_col().insert_one({
         "session_id": body.session_id,
@@ -46,4 +46,4 @@ async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> Ch
         update["title"] = body.message.strip()[:60]
     await sessions_col().update_one({"_id": sid}, {"$set": update})
 
-    return ChatResponse(answer=answer, refused=refused, top_score=top_score, sources=sources)
+    return ChatResponse(answer=answer, refused=refused, top_score=top_score, sources=sources, follow_ups=follow_ups)

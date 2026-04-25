@@ -433,6 +433,42 @@ body {
   font-weight: 600;
 }
 
+/* Follow-up suggestions */
+.follow-ups {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.follow-ups-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.follow-ups-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.follow-up-btn {
+  text-align: left;
+  background: #111420;
+  border: 1px solid var(--border);
+  color: #a5b4fc;
+  padding: 9px 13px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.follow-up-btn:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+  color: #ffffff;
+}
+
 /* ---------- Composer ---------- */
 .composer {
   display: flex;

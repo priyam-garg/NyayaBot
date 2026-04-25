@@ -31,8 +31,21 @@ INGEST_DIR = ROOT / "data" / "ingest"
 BATCH_SIZE = 128
 
 
-def extract_text(pdf_path: Path) -> str:
-    reader = PdfReader(str(pdf_path))
+def pdf_display_name(pdf_path: Path, reader: PdfReader) -> str:
+    """Return a human-readable document title: PDF metadata > clean filename."""
+    try:
+        meta = reader.metadata
+        if meta and meta.title and meta.title.strip():
+            return meta.title.strip()
+    except Exception:
+        pass
+    # Clean up filename: strip extension, replace separators, title-case
+    stem = pdf_path.stem
+    name = stem.replace("_", " ").replace("-", " ")
+    return name.title()
+
+
+def extract_text(pdf_path: Path, reader: PdfReader) -> str:
     pages = []
     for page in reader.pages:
         try:
@@ -80,7 +93,10 @@ def main() -> int:
     total_chunks = 0
     for pdf in pdfs:
         print(f"reading {pdf.name}")
-        text = extract_text(pdf)
+        reader = PdfReader(str(pdf))
+        display_name = pdf_display_name(pdf, reader)
+        print(f"  title: {display_name}")
+        text = extract_text(pdf, reader)
         if not text.strip():
             print(f"  skip: empty text")
             continue
@@ -97,6 +113,7 @@ def main() -> int:
                     vector=vec,
                     payload={
                         "source": pdf.name,
+                        "document_title": display_name,
                         "chunk_index": start + i,
                         "text": chunk,
                     },

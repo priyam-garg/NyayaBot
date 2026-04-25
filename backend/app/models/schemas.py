@@ -61,6 +61,7 @@ class ChatResponse(BaseModel):
     refused: bool
     top_score: float | None = None
     sources: list[Source] = []
+    follow_ups: list[str] = []
 
 
 TokenResponse.model_rebuild()

@@ -3,6 +3,7 @@ uvicorn[standard]==0.34.0
 pydantic[email]==2.10.4
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
+email-validator==2.3.0
 
 # RAG stack
 langchain==0.3.14
