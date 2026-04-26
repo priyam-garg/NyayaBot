@@ -47,6 +47,21 @@ REFUSAL_MESSAGE = (
     "I have access to. Please ask something related to the ingested materials."
 )
 
+_FALLBACK_SYSTEM_PROMPT = (
+    "You are NyayaBot, a helpful legal assistant specialising in Indian law. "
+    "Answer the user's question thoroughly and clearly based on your knowledge of Indian law. "
+    "Structure your answer with: a direct explanation, key provisions or points (as a bulleted list if there are multiple), "
+    "and any relevant time limits, penalties, or procedures. "
+    "Use plain language so a non-lawyer can understand. "
+    "Do not mention that you are using general knowledge or that documents were not found.\n\n"
+    "After your answer, add exactly this block on a new line:\n"
+    "FOLLOW_UPS:\n"
+    "1. <first follow-up question>\n"
+    "2. <second follow-up question>\n"
+    "3. <third follow-up question>\n"
+    "The follow-up questions must be natural next questions a citizen would ask."
+)
+
 # Used for the final answer generation
 SYSTEM_PROMPT = (
     "You are NyayaBot, a helpful legal assistant specialising in Indian law. "
@@ -215,6 +230,20 @@ def _parse_follow_ups(raw: str) -> tuple[str, list[str]]:
 
 
 # ---------------------------------------------------------------------------
+# Gemini fallback (used when RAG has no relevant context)
+# ---------------------------------------------------------------------------
+def _fallback_answer(query: str) -> tuple[str, list[str]]:
+    """Call Gemini directly without any retrieved context."""
+    log.info("RAG fallback: answering %r directly via Gemini", query[:80])
+    messages = [
+        SystemMessage(content=_FALLBACK_SYSTEM_PROMPT),
+        HumanMessage(content=query),
+    ]
+    raw = get_llm().invoke(messages).content
+    return _parse_follow_ups(raw)
+
+
+# ---------------------------------------------------------------------------
 # Main RAG entry point
 # ---------------------------------------------------------------------------
 def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | None, list[dict], list[str]]:
@@ -275,12 +304,13 @@ def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | N
     print(f"[RAG FLOW] merged candidates: {len(candidates)}")
 
     if not candidates:
-        log.warning("RAG: no candidates for query=%r doc_id=%r", query, doc_id)
+        log.warning("RAG: no candidates — falling back to direct Gemini for query=%r", query)
+        print("[RAG FLOW] No candidates -> Gemini fallback")
+        answer, follow_ups = _fallback_answer(query)
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
-        print("[RAG FLOW] No candidates -> refusal")
         print(f"[RAG FLOW] End ({elapsed_ms} ms)")
         print("~" * 72 + "\n")
-        return REFUSAL_MESSAGE, True, None, [], []
+        return answer, False, None, [], follow_ups
 
     # Step 5: cross-encoder reranking — re-score with full query-passage attention
     print(f"[RAG FLOW] Reranking candidates to top {s.top_k}")
@@ -299,14 +329,15 @@ def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | N
     effective_threshold = rerank_threshold if not doc_id else rerank_threshold * 0.85
     print(f"[RAG FLOW] threshold (effective): {effective_threshold:.3f}")
 
-    # If score is clearly irrelevant (< -2 on ms-marco scale), refuse
+    # If score is clearly irrelevant (< -2 on ms-marco scale), fall back to direct Gemini
     if top_score < -2.0:
-        log.info("RAG refused: top cross-encoder score %.3f < -2.0", top_score)
+        log.info("RAG score %.3f < -2.0 — falling back to direct Gemini", top_score)
+        print("[RAG FLOW] Score below floor (-2.0) -> Gemini fallback")
+        answer, follow_ups = _fallback_answer(query)
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
-        print("[RAG FLOW] Refused: score below hard floor (-2.0)")
         print(f"[RAG FLOW] End ({elapsed_ms} ms)")
         print("~" * 72 + "\n")
-        return REFUSAL_MESSAGE, True, top_score, [], []
+        return answer, False, top_score, [], follow_ups
 
     # Step 7: generate answer
     print("[RAG FLOW] Generating final answer with Gemini...")

@@ -105,8 +105,22 @@ def main() -> int:
         return 1
 
     _line(f"Found {len(pdfs)} PDF(s)")
-    _line("Ensuring Qdrant collection exists...")
-    ensure_collection()
+    _line("Ensuring Qdrant collection exists (will retry if cluster is hibernated)...")
+    _RETRY_DELAYS = [10, 20, 30]
+    for attempt, delay in enumerate([0] + _RETRY_DELAYS, 1):
+        if delay:
+            _line(f"Qdrant timeout — cluster waking up, retrying in {delay}s (attempt {attempt}/{len(_RETRY_DELAYS)+1})...")
+            time.sleep(delay)
+        try:
+            ensure_collection()
+            break
+        except Exception as exc:
+            msg = str(exc)
+            if "10060" in msg or "ConnectTimeout" in msg or "timed out" in msg.lower():
+                if attempt <= len(_RETRY_DELAYS):
+                    continue
+            _line(f"ERROR connecting to Qdrant: {exc}")
+            return 1
     _line("Qdrant collection ready")
 
     total_chunks = 0
