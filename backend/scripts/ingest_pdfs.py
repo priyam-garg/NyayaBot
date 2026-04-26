@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -29,6 +30,16 @@ from app.services.qdrant_client import ensure_collection, get_qdrant
 
 INGEST_DIR = ROOT / "data" / "ingest"
 BATCH_SIZE = 128
+
+
+def _banner(title: str) -> None:
+    print("\n" + "=" * 78)
+    print(f"[INGEST] {title}")
+    print("=" * 78)
+
+
+def _line(message: str) -> None:
+    print(f"[INGEST] {message}")
 
 
 def pdf_display_name(pdf_path: Path, reader: PdfReader) -> str:
@@ -79,33 +90,50 @@ def upsert_batch(points: list[qmodels.PointStruct]) -> None:
 
 
 def main() -> int:
+    run_start = time.perf_counter()
+    _banner("PDF ingestion started")
+    _line(f"Source directory : {INGEST_DIR}")
+    _line(f"Batch size       : {BATCH_SIZE}")
+
     if not INGEST_DIR.exists():
-        print(f"error: {INGEST_DIR} does not exist")
+        _line(f"ERROR: ingest directory does not exist -> {INGEST_DIR}")
         return 1
 
     pdfs = sorted(INGEST_DIR.glob("*.pdf"))
     if not pdfs:
-        print(f"no PDFs found in {INGEST_DIR}")
+        _line(f"No PDFs found in {INGEST_DIR}")
         return 1
 
+    _line(f"Found {len(pdfs)} PDF(s)")
+    _line("Ensuring Qdrant collection exists...")
     ensure_collection()
+    _line("Qdrant collection ready")
 
     total_chunks = 0
-    for pdf in pdfs:
-        print(f"reading {pdf.name}")
+    for index, pdf in enumerate(pdfs, 1):
+        file_start = time.perf_counter()
+        _banner(f"Processing file {index}/{len(pdfs)}: {pdf.name}")
+        _line("Reading PDF...")
         reader = PdfReader(str(pdf))
         display_name = pdf_display_name(pdf, reader)
-        print(f"  title: {display_name}")
+        _line(f"Document title   : {display_name}")
+
+        _line("Extracting text...")
         text = extract_text(pdf, reader)
         if not text.strip():
-            print(f"  skip: empty text")
+            _line("SKIP: extracted text is empty")
             continue
 
+        _line("Chunking text...")
         chunks = chunk_text(text)
-        print(f"  {len(chunks)} chunks")
+        _line(f"Chunks generated : {len(chunks)}")
 
         for start in range(0, len(chunks), BATCH_SIZE):
             batch = chunks[start : start + BATCH_SIZE]
+            batch_no = (start // BATCH_SIZE) + 1
+            _line(
+                f"Batch {batch_no}: embedding+upsert for chunk indexes {start}-{start + len(batch) - 1}"
+            )
             vectors = embed_texts(batch)
             points = [
                 qmodels.PointStruct(
@@ -122,11 +150,19 @@ def main() -> int:
             ]
             upsert_batch(points)
             total_chunks += len(points)
+            _line(f"Batch {batch_no}: upserted {len(points)} point(s)")
+
+        file_elapsed_ms = int((time.perf_counter() - file_start) * 1000)
+        _line(f"Completed {pdf.name} in {file_elapsed_ms} ms")
 
     count = get_qdrant().count(
         collection_name=get_settings().qdrant_collection, exact=True
     ).count
-    print(f"\ndone. upserted {total_chunks} chunks. collection now has {count} points.")
+    total_elapsed_ms = int((time.perf_counter() - run_start) * 1000)
+    _banner("Ingestion finished")
+    _line(f"Total chunks upserted : {total_chunks}")
+    _line(f"Collection point count: {count}")
+    _line(f"Total runtime          : {total_elapsed_ms} ms")
     return 0
 
 

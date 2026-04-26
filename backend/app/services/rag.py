@@ -1,4 +1,5 @@
 import logging
+import time
 from functools import lru_cache
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -227,41 +228,66 @@ def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | N
       6. Similarity threshold refusal gate
       7. Gemini answer generation
     """
+    t0 = time.perf_counter()
+    print("\n" + "~" * 72)
+    print("[RAG FLOW] Start")
+    print("~" * 72)
+    print(f"[RAG FLOW] Query : {query[:180]}{'...' if len(query) > 180 else ''}")
+    print(f"[RAG FLOW] DocID : {doc_id or 'none'}")
+
     s = get_settings()
     expanded = _expand_query(query)
+    if expanded != query:
+        print(f"[RAG FLOW] Expanded query: {expanded}")
 
     # Step 2: HyDE — embed hypothetical answer instead of raw question
     if s.hyde_enabled:
+        print("[RAG FLOW] HyDE enabled: generating hypothetical document...")
         try:
             hyde_text = _hypothetical_document(expanded)
             vector = embed_query(hyde_text)
+            print(f"[RAG FLOW] HyDE embedding ready (chars={len(hyde_text)})")
         except Exception as exc:
             log.warning("HyDE generation failed (%s); falling back to direct query embedding", exc)
+            print(f"[RAG FLOW] HyDE failed ({exc}); fallback to direct query embedding")
             vector = embed_query(expanded)
     else:
+        print("[RAG FLOW] HyDE disabled: embedding direct query")
         vector = embed_query(expanded)
 
     # Step 3: retrieve a larger candidate pool for reranking
+    print(f"[RAG FLOW] Searching legal_docs (top={s.retrieval_top_k})")
     legal_hits = search(vector, limit=s.retrieval_top_k)
+    print(f"[RAG FLOW] legal_docs hits: {len(legal_hits)}")
 
     user_hits = []
     if doc_id:
         try:
+            print(f"[RAG FLOW] Searching user_docs for doc_id={doc_id} (top={s.retrieval_top_k})")
             user_hits = search_user_docs(vector, doc_id=doc_id, limit=s.retrieval_top_k)
+            print(f"[RAG FLOW] user_docs hits: {len(user_hits)}")
         except RuntimeError:
             log.warning("user_docs search failed for doc_id=%s; continuing with legal_docs only", doc_id)
+            print("[RAG FLOW] user_docs search unavailable; continuing with legal_docs only")
 
     # Step 4: merge
     candidates = _merge_hits(legal_hits, user_hits, limit=s.retrieval_top_k * 2)
+    print(f"[RAG FLOW] merged candidates: {len(candidates)}")
 
     if not candidates:
         log.warning("RAG: no candidates for query=%r doc_id=%r", query, doc_id)
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        print("[RAG FLOW] No candidates -> refusal")
+        print(f"[RAG FLOW] End ({elapsed_ms} ms)")
+        print("~" * 72 + "\n")
         return REFUSAL_MESSAGE, True, None, [], []
 
     # Step 5: cross-encoder reranking — re-score with full query-passage attention
+    print(f"[RAG FLOW] Reranking candidates to top {s.top_k}")
     hits = _rerank(query, candidates, top_n=s.top_k)
 
     top_score = float(hits[0].score)
+    print(f"[RAG FLOW] top_score (reranked): {top_score:.3f}")
     log.info("RAG query=%r top_score_after_rerank=%.3f threshold=%.2f hyde=%s",
              query, top_score, s.similarity_threshold, s.hyde_enabled)
 
@@ -271,13 +297,19 @@ def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | N
     # We use a separate rerank_threshold to avoid conflating with cosine similarity.
     rerank_threshold = s.similarity_threshold if not s.hyde_enabled else -1.0
     effective_threshold = rerank_threshold if not doc_id else rerank_threshold * 0.85
+    print(f"[RAG FLOW] threshold (effective): {effective_threshold:.3f}")
 
     # If score is clearly irrelevant (< -2 on ms-marco scale), refuse
     if top_score < -2.0:
         log.info("RAG refused: top cross-encoder score %.3f < -2.0", top_score)
+        elapsed_ms = int((time.perf_counter() - t0) * 1000)
+        print("[RAG FLOW] Refused: score below hard floor (-2.0)")
+        print(f"[RAG FLOW] End ({elapsed_ms} ms)")
+        print("~" * 72 + "\n")
         return REFUSAL_MESSAGE, True, top_score, [], []
 
     # Step 7: generate answer
+    print("[RAG FLOW] Generating final answer with Gemini...")
     context = _format_context(hits)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -285,4 +317,8 @@ def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | N
     ]
     raw = get_llm().invoke(messages).content
     answer, follow_ups = _parse_follow_ups(raw)
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+    print(f"[RAG FLOW] Answer ready | chars={len(answer)} | follow_ups={len(follow_ups)}")
+    print(f"[RAG FLOW] End ({elapsed_ms} ms)")
+    print("~" * 72 + "\n")
     return answer, False, top_score, _dedupe_sources(hits), follow_ups
