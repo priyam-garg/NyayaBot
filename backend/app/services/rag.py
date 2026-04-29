@@ -8,40 +8,15 @@ from sentence_transformers import CrossEncoder
 
 from app.config import get_settings
 from app.services.embeddings import embed_query
+from app.services.intent_classifier import classify_intent, IntentResult
+from app.services.query_normalizer import normalize_query
+from app.services.span_extractor import extract_span
 from app.services.qdrant_client import search, search_user_docs
 
 log = logging.getLogger("nyayabot.rag")
 
-# ---------------------------------------------------------------------------
-# Abbreviation expansion — improves embedding match for short Indian legal terms
-# ---------------------------------------------------------------------------
-_ABBREV = {
-    r"\brti\b": "Right to Information Act",
-    r"\bcpa\b": "Consumer Protection Act",
-    r"\bipc\b": "Indian Penal Code",
-    r"\bcpc\b": "Code of Civil Procedure",
-    r"\bcrpc\b": "Code of Criminal Procedure",
-    r"\bit act\b": "Information Technology Act",
-    r"\bmva\b": "Motor Vehicles Act",
-    r"\bpio\b": "Public Information Officer",
-    r"\bcic\b": "Central Information Commission",
-    r"\bsic\b": "State Information Commission",
-}
+# ── Prompts ────────────────────────────────────────────────────────────────
 
-
-def _expand_query(query: str) -> str:
-    import re
-    q = query
-    for pattern, replacement in _ABBREV.items():
-        q = re.sub(pattern, replacement, q, flags=re.IGNORECASE)
-    if q != query:
-        log.info("Query expanded: %r -> %r", query, q)
-    return q
-
-
-# ---------------------------------------------------------------------------
-# Prompts
-# ---------------------------------------------------------------------------
 REFUSAL_MESSAGE = (
     "That question appears to be outside the scope of the legal documents "
     "I have access to. Please ask something related to the ingested materials."
@@ -62,7 +37,6 @@ _FALLBACK_SYSTEM_PROMPT = (
     "The follow-up questions must be natural next questions a citizen would ask."
 )
 
-# Used for the final answer generation
 SYSTEM_PROMPT = (
     "You are NyayaBot, a helpful legal assistant specialising in Indian law. "
     "Answer the user's question thoroughly and clearly using ONLY the provided context. "
@@ -80,7 +54,6 @@ SYSTEM_PROMPT = (
     "strictly based on what is in the context."
 )
 
-# Used by HyDE to generate a hypothetical document for embedding
 _HYDE_PROMPT = (
     "You are an excerpt from an Indian legal textbook or official government document. "
     "Write 2–3 sentences that directly answer the following legal question. "
@@ -90,9 +63,8 @@ _HYDE_PROMPT = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Singletons
-# ---------------------------------------------------------------------------
+# ── Singletons ─────────────────────────────────────────────────────────────
+
 @lru_cache
 def get_llm() -> ChatGoogleGenerativeAI:
     s = get_settings()
@@ -105,26 +77,22 @@ def get_llm() -> ChatGoogleGenerativeAI:
 
 @lru_cache
 def get_cross_encoder() -> CrossEncoder:
-    """Load cross-encoder model once. ~80 MB download on first use."""
     model = get_settings().reranker_model
     log.info("Loading cross-encoder: %s", model)
     return CrossEncoder(model)
 
 
-# ---------------------------------------------------------------------------
-# HyDE — Hypothetical Document Embeddings
-# ---------------------------------------------------------------------------
+# ── HyDE ──────────────────────────────────────────────────────────────────
+
 def _hypothetical_document(query: str) -> str:
     """
-    Ask the LLM to write a short passage that *would* answer the query,
-    then return that passage for embedding.
+    Generate a short hypothetical passage that *would* answer the query,
+    then embed that passage instead of the raw question (HyDE technique).
 
-    Why this works: the hypothetical answer lives in the same semantic space
-    as real document chunks, whereas a question ("What is the fee?") and an
-    answer ("The fee is ₹10 under Section 7(1)") embed very differently.
-
-    Reference: Gao et al., 2022 — "Precise Zero-Shot Dense Retrieval without
-    Relevance Labels" (HyDE).
+    The hypothetical answer lives in the same semantic space as real document
+    chunks, whereas a raw question and its answer embed very differently.
+    Reference: Gao et al. 2022 — "Precise Zero-Shot Dense Retrieval without
+    Relevance Labels."
     """
     prompt = _HYDE_PROMPT.format(query=query)
     hypothetical = get_llm().invoke([HumanMessage(content=prompt)]).content.strip()
@@ -132,32 +100,23 @@ def _hypothetical_document(query: str) -> str:
     return hypothetical
 
 
-# ---------------------------------------------------------------------------
-# Cross-encoder reranking
-# ---------------------------------------------------------------------------
+# ── Cross-encoder reranking ────────────────────────────────────────────────
+
 def _rerank(query: str, hits: list, top_n: int) -> list:
     """
-    Rerank `hits` using a cross-encoder that jointly attends to (query, passage).
-
-    The bi-encoder (used during retrieval) encodes query and passage independently
-    — fast but less accurate. The cross-encoder encodes the concatenation
-    [CLS] query [SEP] passage [SEP], letting self-attention see both at once.
-    This is significantly more accurate but too slow for full-corpus search,
-    so we only apply it to the top retrieved candidates.
-
-    Scores replace the original cosine similarity scores for downstream logging.
+    Re-score candidates using a cross-encoder that jointly attends to
+    (query, passage). Slower than the bi-encoder but significantly more
+    accurate. Applied only to the top retrieved candidates, not the full corpus.
     """
     if not hits:
         return hits
     ce = get_cross_encoder()
     pairs = [(query, h.payload.get("text", "")) for h in hits]
-    scores = ce.predict(pairs)  # returns numpy array of floats
+    scores = ce.predict(pairs)
 
-    # Attach cross-encoder score to each hit (mutate a wrapper, not the original)
     scored = sorted(zip(scores.tolist(), hits), key=lambda x: x[0], reverse=True)
     reranked = []
     for ce_score, h in scored[:top_n]:
-        # Wrap hit with overridden score for logging/display purposes
         h.score = float(ce_score)
         reranked.append(h)
 
@@ -166,21 +125,21 @@ def _rerank(query: str, hits: list, top_n: int) -> list:
     return reranked
 
 
-# ---------------------------------------------------------------------------
-# Context formatting and source deduplication
-# ---------------------------------------------------------------------------
+# ── Context + source helpers ───────────────────────────────────────────────
+
 def _format_context(hits) -> str:
     blocks = []
     for i, h in enumerate(hits, 1):
         payload = h.payload or {}
         src = payload.get("source", "unknown")
+        sec = payload.get("section_number", "")
         text = payload.get("text", "")
-        blocks.append(f"[{i}] Source: {src}\n{text}")
+        header = f"[{i}] Source: {src}" + (f" | Section {sec}" if sec else "")
+        blocks.append(f"{header}\n{text}")
     return "\n\n".join(blocks)
 
 
 def _dedupe_sources(hits) -> list[dict]:
-    """Collapse hits to one entry per source filename, keeping the best score."""
     best: dict[str, dict] = {}
     for h in hits:
         payload = h.payload or {}
@@ -193,12 +152,13 @@ def _dedupe_sources(hits) -> list[dict]:
                 "score": score,
                 "chunk_index": int(payload.get("chunk_index", 0)),
                 "origin": origin,
+                "section_number": payload.get("section_number", ""),
+                "section_title": payload.get("section_title", ""),
             }
     return sorted(best.values(), key=lambda x: x["score"], reverse=True)
 
 
 def _merge_hits(legal_hits: list, user_hits: list, limit: int) -> list:
-    """Merge two hit lists by score descending, deduplicate by point id."""
     seen_ids: set = set()
     combined = []
     for h in legal_hits:
@@ -214,7 +174,6 @@ def _merge_hits(legal_hits: list, user_hits: list, limit: int) -> list:
 
 
 def _parse_follow_ups(raw: str) -> tuple[str, list[str]]:
-    """Split Gemini response into (answer, follow_up_questions)."""
     import re
     marker = re.search(r"\nFOLLOW_UPS:\s*\n", raw)
     if not marker:
@@ -229,11 +188,9 @@ def _parse_follow_ups(raw: str) -> tuple[str, list[str]]:
     return answer, questions[:3]
 
 
-# ---------------------------------------------------------------------------
-# Gemini fallback (used when RAG has no relevant context)
-# ---------------------------------------------------------------------------
+# ── Gemini fallback ────────────────────────────────────────────────────────
+
 def _fallback_answer(query: str) -> tuple[str, list[str]]:
-    """Call Gemini directly without any retrieved context."""
     log.info("RAG fallback: answering %r directly via Gemini", query[:80])
     messages = [
         SystemMessage(content=_FALLBACK_SYSTEM_PROMPT),
@@ -243,19 +200,28 @@ def _fallback_answer(query: str) -> tuple[str, list[str]]:
     return _parse_follow_ups(raw)
 
 
-# ---------------------------------------------------------------------------
-# Main RAG entry point
-# ---------------------------------------------------------------------------
-def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | None, list[dict], list[str]]:
+# ── Main RAG entry point ───────────────────────────────────────────────────
+
+def run_rag(
+    query: str,
+    doc_id: str | None = None,
+) -> tuple[str, bool, float | None, list[dict], list[str], str | None, str | None, str | None, str | None]:
     """
     Full pipeline:
-      1. Abbreviation expansion
-      2. HyDE — generate hypothetical document, embed it (better retrieval)
-      3. Qdrant dense search (retrieval_top_k candidates)
-      4. Merge user_docs hits (if session has an uploaded document)
-      5. Cross-encoder reranking (candidates → top_k final)
-      6. Similarity threshold refusal gate
-      7. Gemini answer generation
+      0. Classical NLP: query normalization (tokenize, stopword, lemmatize)
+      1. Intent classification (keyword-based domain detection)
+      2. Abbreviation expansion
+      3. HyDE — embed hypothetical answer
+      4. Qdrant dense search (retrieval_top_k candidates)
+      5. Merge user_doc hits
+      6. Cross-encoder reranking
+      7. Similarity threshold refusal gate
+      8. Exact span extraction (sub-chunk sentence matching)
+      9. Gemini answer generation
+
+    Returns:
+      (answer, refused, top_score, sources, follow_ups,
+       intent_domain, intent_label, normalized_query, top_span)
     """
     t0 = time.perf_counter()
     print("\n" + "~" * 72)
@@ -265,26 +231,32 @@ def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | N
     print(f"[RAG FLOW] DocID : {doc_id or 'none'}")
 
     s = get_settings()
-    expanded = _expand_query(query)
-    if expanded != query:
-        print(f"[RAG FLOW] Expanded query: {expanded}")
 
-    # Step 2: HyDE — embed hypothetical answer instead of raw question
+    # Step 0: Classical NLP preprocessing
+    normalized_query, expanded = normalize_query(query)
+    print(f"[RAG FLOW] Normalized : {normalized_query[:120]}")
+    print(f"[RAG FLOW] Expanded   : {expanded[:120]}")
+
+    # Step 1: Intent classification
+    intent: IntentResult = classify_intent(query)
+    print(f"[RAG FLOW] Intent: {intent.label} (confidence={intent.confidence})")
+
+    # Step 2: HyDE
     if s.hyde_enabled:
-        print("[RAG FLOW] HyDE enabled: generating hypothetical document...")
+        print("[RAG FLOW] HyDE: generating hypothetical document…")
         try:
             hyde_text = _hypothetical_document(expanded)
             vector = embed_query(hyde_text)
             print(f"[RAG FLOW] HyDE embedding ready (chars={len(hyde_text)})")
         except Exception as exc:
-            log.warning("HyDE generation failed (%s); falling back to direct query embedding", exc)
-            print(f"[RAG FLOW] HyDE failed ({exc}); fallback to direct query embedding")
+            log.warning("HyDE failed (%s); falling back to direct embedding", exc)
+            print(f"[RAG FLOW] HyDE failed ({exc}); using direct query embedding")
             vector = embed_query(expanded)
     else:
-        print("[RAG FLOW] HyDE disabled: embedding direct query")
+        print("[RAG FLOW] HyDE disabled: embedding expanded query")
         vector = embed_query(expanded)
 
-    # Step 3: retrieve a larger candidate pool for reranking
+    # Step 3: Retrieve
     print(f"[RAG FLOW] Searching legal_docs (top={s.retrieval_top_k})")
     legal_hits = search(vector, limit=s.retrieval_top_k)
     print(f"[RAG FLOW] legal_docs hits: {len(legal_hits)}")
@@ -292,55 +264,56 @@ def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | N
     user_hits = []
     if doc_id:
         try:
-            print(f"[RAG FLOW] Searching user_docs for doc_id={doc_id} (top={s.retrieval_top_k})")
+            print(f"[RAG FLOW] Searching user_docs (doc_id={doc_id})")
             user_hits = search_user_docs(vector, doc_id=doc_id, limit=s.retrieval_top_k)
             print(f"[RAG FLOW] user_docs hits: {len(user_hits)}")
         except RuntimeError:
-            log.warning("user_docs search failed for doc_id=%s; continuing with legal_docs only", doc_id)
-            print("[RAG FLOW] user_docs search unavailable; continuing with legal_docs only")
+            log.warning("user_docs search failed for doc_id=%s", doc_id)
 
-    # Step 4: merge
+    # Step 4: Merge + rerank
     candidates = _merge_hits(legal_hits, user_hits, limit=s.retrieval_top_k * 2)
-    print(f"[RAG FLOW] merged candidates: {len(candidates)}")
+    print(f"[RAG FLOW] Merged candidates: {len(candidates)}")
 
     if not candidates:
-        log.warning("RAG: no candidates — falling back to direct Gemini for query=%r", query)
-        print("[RAG FLOW] No candidates -> Gemini fallback")
+        log.warning("No candidates — Gemini fallback for query=%r", query)
+        print("[RAG FLOW] No candidates → Gemini fallback")
         answer, follow_ups = _fallback_answer(query)
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         print(f"[RAG FLOW] End ({elapsed_ms} ms)")
         print("~" * 72 + "\n")
-        return answer, False, None, [], follow_ups
+        return answer, False, None, [], follow_ups, intent.domain, intent.label, normalized_query, None
 
-    # Step 5: cross-encoder reranking — re-score with full query-passage attention
-    print(f"[RAG FLOW] Reranking candidates to top {s.top_k}")
+    print(f"[RAG FLOW] Reranking to top {s.top_k}")
     hits = _rerank(query, candidates, top_n=s.top_k)
 
     top_score = float(hits[0].score)
     print(f"[RAG FLOW] top_score (reranked): {top_score:.3f}")
-    log.info("RAG query=%r top_score_after_rerank=%.3f threshold=%.2f hyde=%s",
-             query, top_score, s.similarity_threshold, s.hyde_enabled)
+    log.info("RAG query=%r top_score=%.3f threshold=%.2f intent=%s",
+             query, top_score, s.similarity_threshold, intent.domain)
 
-    # Step 6: refusal gate (applied to cross-encoder scores — typically 0–10 range)
-    # Cross-encoder scores are not cosine similarities; calibrate threshold accordingly.
-    # ms-marco-MiniLM scores: relevant ~3–10, irrelevant ~-5–2.
-    # We use a separate rerank_threshold to avoid conflating with cosine similarity.
-    rerank_threshold = s.similarity_threshold if not s.hyde_enabled else -1.0
-    effective_threshold = rerank_threshold if not doc_id else rerank_threshold * 0.85
-    print(f"[RAG FLOW] threshold (effective): {effective_threshold:.3f}")
-
-    # If score is clearly irrelevant (< -2 on ms-marco scale), fall back to direct Gemini
+    # Step 5: Refusal gate
     if top_score < -2.0:
-        log.info("RAG score %.3f < -2.0 — falling back to direct Gemini", top_score)
-        print("[RAG FLOW] Score below floor (-2.0) -> Gemini fallback")
+        log.info("Score %.3f < -2.0 → Gemini fallback", top_score)
+        print("[RAG FLOW] Score below floor → Gemini fallback")
         answer, follow_ups = _fallback_answer(query)
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
         print(f"[RAG FLOW] End ({elapsed_ms} ms)")
         print("~" * 72 + "\n")
-        return answer, False, top_score, [], follow_ups
+        return answer, False, top_score, [], follow_ups, intent.domain, intent.label, normalized_query, None
 
-    # Step 7: generate answer
-    print("[RAG FLOW] Generating final answer with Gemini...")
+    # Step 6: Exact span extraction from top chunk
+    top_span: str | None = None
+    try:
+        top_chunk_text = (hits[0].payload or {}).get("text", "")
+        span_result = extract_span(query, top_chunk_text)
+        if span_result:
+            top_span = span_result.text
+            print(f"[RAG FLOW] Top span (score={span_result.score}): {top_span[:100]}")
+    except Exception as exc:
+        log.warning("Span extraction failed: %s", exc)
+
+    # Step 7: Generate answer
+    print("[RAG FLOW] Generating answer with Gemini…")
     context = _format_context(hits)
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
@@ -348,8 +321,13 @@ def run_rag(query: str, doc_id: str | None = None) -> tuple[str, bool, float | N
     ]
     raw = get_llm().invoke(messages).content
     answer, follow_ups = _parse_follow_ups(raw)
+
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
-    print(f"[RAG FLOW] Answer ready | chars={len(answer)} | follow_ups={len(follow_ups)}")
+    print(f"[RAG FLOW] Answer ready | chars={len(answer)} | follow_ups={len(follow_ups)} | span={'yes' if top_span else 'no'}")
     print(f"[RAG FLOW] End ({elapsed_ms} ms)")
     print("~" * 72 + "\n")
-    return answer, False, top_score, _dedupe_sources(hits), follow_ups
+
+    return (
+        answer, False, top_score, _dedupe_sources(hits), follow_ups,
+        intent.domain, intent.label, normalized_query, top_span,
+    )

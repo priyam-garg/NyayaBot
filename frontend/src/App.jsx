@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import Login from "./pages/Login.jsx";
 import Signup from "./pages/Signup.jsx";
 import Chat from "./pages/Chat.jsx";
+import Compare from "./pages/Compare.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
 
 function Protected({ children }) {
@@ -21,6 +22,14 @@ export default function App() {
         element={
           <Protected>
             <Chat />
+          </Protected>
+        }
+      />
+      <Route
+        path="/compare"
+        element={
+          <Protected>
+            <Compare />
           </Protected>
         }
       />
