@@ -196,7 +196,14 @@ def _fallback_answer(query: str) -> tuple[str, list[str]]:
         SystemMessage(content=_FALLBACK_SYSTEM_PROMPT),
         HumanMessage(content=query),
     ]
-    raw = get_llm().invoke(messages).content
+    try:
+        raw = get_llm().invoke(messages).content
+    except Exception as exc:
+        if "429" in str(exc) or "Resource exhausted" in str(exc) or "ResourceExhausted" in type(exc).__name__:
+            raise RuntimeError(
+                "Gemini API rate limit reached (429). Please wait a minute and try again."
+            ) from exc
+        raise
     return _parse_follow_ups(raw)
 
 
@@ -319,7 +326,15 @@ def run_rag(
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=f"Context:\n{context}\n\nQuestion: {query}"),
     ]
-    raw = get_llm().invoke(messages).content
+    try:
+        raw = get_llm().invoke(messages).content
+    except Exception as exc:
+        if "429" in str(exc) or "Resource exhausted" in str(exc) or "ResourceExhausted" in type(exc).__name__:
+            raise RuntimeError(
+                "Gemini API rate limit reached (429). Please wait a minute and try again, "
+                "or set HYDE_ENABLED=false in your .env to reduce API calls."
+            ) from exc
+        raise
     answer, follow_ups = _parse_follow_ups(raw)
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
