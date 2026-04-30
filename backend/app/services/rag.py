@@ -2,7 +2,7 @@ import logging
 import time
 from functools import lru_cache
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 from sentence_transformers import CrossEncoder
 
@@ -65,12 +65,11 @@ _HYDE_PROMPT = (
 
 # ── Singletons ─────────────────────────────────────────────────────────────
 
-@lru_cache
-def get_llm() -> ChatGoogleGenerativeAI:
+def get_llm() -> ChatGroq:
     s = get_settings()
-    return ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        google_api_key=s.gemini_api_key,
+    return ChatGroq(
+        model="llama-3.3-70b-versatile",
+        api_key=s.groq_api_key,
         temperature=0.2,
     )
 
