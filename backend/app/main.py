@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.api import auth, sessions, chat, documents
+from app.api import auth, sessions, chat, documents, compare
 from app.services.mongo import ensure_indexes
 from app.services.qdrant_client import ensure_collection, ensure_user_docs_collection
 
@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(chat.router)
     app.include_router(documents.router)
+    app.include_router(compare.router)
 
     @app.get("/health")
     async def health():

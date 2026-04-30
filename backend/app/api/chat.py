@@ -68,7 +68,10 @@ async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> Ch
 
     try:
         print("[CHAT FLOW] Calling RAG pipeline...")
-        answer, refused, top_score, sources, follow_ups = await asyncio.to_thread(run_rag, rag_query, doc_id)
+        (
+            answer, refused, top_score, sources, follow_ups,
+            intent_domain, intent_label, normalized_query, top_span,
+        ) = await asyncio.to_thread(run_rag, rag_query, doc_id)
         print("[CHAT FLOW] RAG pipeline finished")
     except RuntimeError as exc:
         print(f"[CHAT FLOW] RAG failed: {exc}")
@@ -98,4 +101,14 @@ async def chat(body: ChatRequest, user_id: str = Depends(current_user_id)) -> Ch
     print(f"[CHAT FLOW] Total backend time: {elapsed_ms} ms")
     print("=" * 72 + "\n")
 
-    return ChatResponse(answer=answer, refused=refused, top_score=top_score, sources=sources, follow_ups=follow_ups)
+    return ChatResponse(
+        answer=answer,
+        refused=refused,
+        top_score=top_score,
+        sources=sources,
+        follow_ups=follow_ups,
+        intent_domain=intent_domain,
+        intent_label=intent_label,
+        normalized_query=normalized_query,
+        top_span=top_span,
+    )

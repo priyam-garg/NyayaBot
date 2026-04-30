@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import api from "../api/client.js";
@@ -196,6 +197,9 @@ export default function Chat() {
           refused: data.refused,
           sources: data.sources || [],
           follow_ups: data.follow_ups || [],
+          intent_domain: data.intent_domain || null,
+          intent_label: data.intent_label || null,
+          top_span: data.top_span || null,
         },
       ]);
       loadSessions();
@@ -303,6 +307,9 @@ export default function Chat() {
           {sessions.length === 0 && <li className="muted small">No chats yet</li>}
         </ul>
         <div className="sidebar-foot">
+          <Link to="/compare" className="compare-nav-link">
+            Compare NLP Methods
+          </Link>
           <div className="user-row">
             <div className="avatar">{initials}</div>
             <div className="user-meta">
@@ -366,6 +373,11 @@ export default function Chat() {
                   <span className="msg-role">{m.role === "user" ? "You" : "NyayaBot"}</span>
                   {m.refused && <span className="badge badge-warn">out of scope</span>}
                   {m.error && <span className="badge badge-err">error</span>}
+                  {m.role === "assistant" && m.intent_label && (
+                    <span className="badge badge-intent" title={`Domain: ${m.intent_domain}`}>
+                      {m.intent_label}
+                    </span>
+                  )}
                 </div>
                 <div className="msg-content">
                   {m.role === "assistant" ? (
@@ -376,6 +388,12 @@ export default function Chat() {
                     m.content
                   )}
                 </div>
+                {m.role === "assistant" && m.top_span && (
+                  <div className="top-span-box">
+                    <span className="top-span-label">Key clause</span>
+                    <blockquote className="top-span-text">{m.top_span}</blockquote>
+                  </div>
+                )}
                 {m.role === "assistant" && m.sources && m.sources.length > 0 && (
                   <div className="sources">
                     <span className="sources-label">Sources</span>
@@ -390,6 +408,9 @@ export default function Chat() {
                           <span className="source-origin-label">Your Doc · </span>
                         )}
                         {s.source}
+                        {s.section_number && (
+                          <span className="source-section"> §{s.section_number}</span>
+                        )}
                         <span className="score">{s.score.toFixed(2)}</span>
                       </span>
                     ))}

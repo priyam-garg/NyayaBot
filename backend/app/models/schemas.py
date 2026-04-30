@@ -42,6 +42,8 @@ class Source(BaseModel):
     score: float
     chunk_index: int
     origin: str = "legal"
+    section_number: str = ""
+    section_title: str = ""
 
 
 class MessageOut(BaseModel):
@@ -64,6 +66,11 @@ class ChatResponse(BaseModel):
     top_score: float | None = None
     sources: list[Source] = []
     follow_ups: list[str] = []
+    # NLP analysis fields
+    intent_domain: str | None = None
+    intent_label: str | None = None
+    normalized_query: str | None = None
+    top_span: str | None = None
 
 
 class DocumentOut(BaseModel):
@@ -79,6 +86,39 @@ class UploadResponse(BaseModel):
     doc_id: str
     display_name: str
     chunk_count: int
+
+
+# ── Compare endpoint schemas ───────────────────────────────────────────────
+
+class CompareRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    top_k: int = Field(default=5, ge=1, le=10)
+
+
+class CompareHitOut(BaseModel):
+    text: str
+    source: str
+    chunk_index: int
+    score: float
+    section_number: str = ""
+    section_title: str = ""
+
+
+class CompareMethodResult(BaseModel):
+    method: str
+    label: str
+    description: str
+    latency_ms: int
+    hits: list[CompareHitOut]
+
+
+class CompareResponse(BaseModel):
+    query: str
+    normalized_query: str
+    intent_domain: str
+    intent_label: str
+    intent_confidence: float
+    methods: list[CompareMethodResult]
 
 
 TokenResponse.model_rebuild()

@@ -22,5 +22,9 @@ pymongo==4.9.2
 bcrypt==4.2.1
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.20
-# Cross-encoder reranking (included in sentence-transformers, but pin for clarity)
-# sentence-transformers already listed above — CrossEncoder is part of that package
+
+# NLP comparison methods
+rank-bm25>=0.2.2
+scikit-learn>=1.4.0
+gensim>=4.3.0
+numpy>=1.26.0
