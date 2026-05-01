@@ -12,6 +12,7 @@ from app.services.intent_classifier import classify_intent, IntentResult
 from app.services.query_normalizer import normalize_query
 from app.services.span_extractor import extract_span
 from app.services.qdrant_client import search, search_user_docs
+from app.services.sentiment_tone import analyze_passage
 
 log = logging.getLogger("nyayabot.rag")
 
@@ -146,6 +147,7 @@ def _dedupe_sources(hits) -> list[dict]:
         score = float(h.score)
         origin = "user_doc" if payload.get("doc_id") else "legal"
         if src not in best or score > best[src]["score"]:
+            tone_result = analyze_passage(payload.get("text", ""))
             best[src] = {
                 "source": payload.get("document_title") or src,
                 "score": score,
@@ -153,6 +155,14 @@ def _dedupe_sources(hits) -> list[dict]:
                 "origin": origin,
                 "section_number": payload.get("section_number", ""),
                 "section_title": payload.get("section_title", ""),
+                "sentiment": tone_result.sentiment,
+                "tone": tone_result.tone,
+                "sentiment_scores": {
+                    "compound": tone_result.compound,
+                    "pos": tone_result.pos,
+                    "neg": tone_result.neg,
+                    "neu": tone_result.neu,
+                },
             }
     return sorted(best.values(), key=lambda x: x["score"], reverse=True)
 
